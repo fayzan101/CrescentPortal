@@ -7,6 +7,7 @@ import DataTable from '../../components/DataTable';
 import FieldWrapper from '../../ui/FieldWrapper';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
+import Textarea from '../../ui/TextArea';
 import EditModal from '@/components/components/EditModal';
 import { useItems } from '@/hooks/inventory/items/useItems';
 import { useWorkflowSummary } from '@/hooks/inventory/items/useWorkflowSummary';
@@ -33,6 +34,11 @@ const ItemsPage = () => {
     const [editDefaultStoreId, setEditDefaultStoreId] = useState('');
     const [editUom, setEditUom] = useState('');
     const [editReorderLevel, setEditReorderLevel] = useState('');
+    const [editExpiryDate, setEditExpiryDate] = useState('');
+    const [editAmount, setEditAmount] = useState('');
+    const [editTaxAmount, setEditTaxAmount] = useState('');
+    const [editTotalAmount, setEditTotalAmount] = useState('');
+    const [editDescription, setEditDescription] = useState('');
     const [updateError, setUpdateError] = useState(null);
     // View modal state
     const [showViewModal, setShowViewModal] = useState(false);
@@ -190,6 +196,8 @@ const ItemsPage = () => {
             reorderLevel: item.reorderLevel ?? 0,
             isActive: item.isActive ?? true,
             defaultStoreId: item.defaultStoreId ?? item.storeId ?? item.store?.id ?? item.store?.storeId ?? 0,
+            expiryDate: item.expiryDate || item.expiry || '2026-12-31',
+            totalAmount: item.totalAmount ?? item.total ?? '6500.00',
         })),
         [items]
     );
@@ -205,9 +213,34 @@ const ItemsPage = () => {
         uom: '',
         reorderLevel: '',
         isActive: true,
+        expiryDate: '',
+        amount: '',
+        taxAmount: '',
+        totalAmount: '',
+        description: '',
     };
 
     const [formData, setFormData] = useState(emptyForm);
+
+    const normalizeSkuInput = (value) => value.toUpperCase().replace(/[^A-Z0-9-_]/g, '').slice(0, 30);
+    const normalizeUomInput = (value) => value.toUpperCase().replace(/[^A-Z0-9/_-]/g, '').slice(0, 10);
+    const normalizeNameInput = (value) => value.replace(/\s+/g, ' ').trim();
+    const normalizeAmountInput = (value) => {
+        const sanitized = value.replace(/[^0-9.]/g, '');
+        const normalized = sanitized.replace(/(\..*)\./g, '$1');
+        return normalized.slice(0, 12);
+    };
+    const parseAmount = (value) => {
+        if (value === '' || value === null || value === undefined) return 0;
+        const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const calculateTotalAmount = (amountValue, taxValue) => {
+        const hasAnyValue = amountValue !== '' || taxValue !== '';
+        if (!hasAnyValue) return '';
+        const total = parseAmount(amountValue) + parseAmount(taxValue);
+        return total.toFixed(2);
+    };
 
     const getCategoryName = (categoryId) => categories.find(c => String(c.id) === String(categoryId))?.name || 'N/A';
     const getGroupName = (groupId) => groups.find(group => String(group.id) === String(groupId))?.name || 'N/A';
@@ -234,20 +267,27 @@ const ItemsPage = () => {
             key: 'groupId', label: 'Group', width: '12%',
             render: (item) => getGroupName(item.groupId)
         },
-                { key: 'uom', label: 'UOM', width: '10%' },
-                { key: 'reorderLevel', label: 'Reorder Level', width: '10%' },
-                {
-                        key: 'isActive',
-                        label: 'Status',
-                        width: '10%',
-                        render: (item) => (
-                                <span className={`px-3 py-1 rounded-full text-xs font-semibold inline-block ${
-                                    item.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                                }`}>
-                                    {item.isActive ? 'Active' : 'Inactive'}
-                                </span>
-                        )
-                }
+        { key: 'uom', label: 'UOM', width: '10%' },
+        { key: 'reorderLevel', label: 'Reorder Level', width: '10%' },
+        { key: 'expiryDate', label: 'Expiry Date', width: '12%' },
+        {
+            key: 'totalAmount',
+            label: 'Total Amount',
+            width: '12%',
+            render: (item) => `Rs ${item.totalAmount}`,
+        },
+        {
+            key: 'isActive',
+            label: 'Status',
+            width: '10%',
+            render: (item) => (
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold inline-block ${
+                    item.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                }`}>
+                    {item.isActive ? 'Active' : 'Inactive'}
+                </span>
+            )
+        }
     ];
 
     const handleAddItemClick = () => {
@@ -268,17 +308,73 @@ const ItemsPage = () => {
             setFormData(prev => ({ ...prev, [name]: safeValue }));
             return;
         }
+        if (name === 'amount' || name === 'taxAmount' || name === 'totalAmount') {
+            setFormData(prev => {
+                const nextValue = normalizeAmountInput(value);
+                const nextState = { ...prev, [name]: nextValue };
+                if (name === 'amount' || name === 'taxAmount') {
+                    nextState.totalAmount = calculateTotalAmount(nextState.amount, nextState.taxAmount);
+                }
+                return nextState;
+            });
+            return;
+        }
+        if (name === 'sku') {
+            setFormData(prev => ({ ...prev, [name]: normalizeSkuInput(value) }));
+            return;
+        }
+        if (name === 'uom') {
+            setFormData(prev => ({ ...prev, [name]: normalizeUomInput(value) }));
+            return;
+        }
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
     const handleSubmitForm = async () => {
-        if (!formData.itemName || !formData.sku || !formData.categoryId || !formData.defaultStoreId || !formData.uom) return;
+        const normalizedName = normalizeNameInput(formData.itemName);
+        const normalizedSku = normalizeSkuInput(formData.sku);
+        const normalizedUom = normalizeUomInput(formData.uom);
+        const skuPattern = /^[A-Z0-9][A-Z0-9-_]{2,29}$/;
+        const uomPattern = /^[A-Z0-9][A-Z0-9/_-]{0,9}$/;
+
+        if (!normalizedName) {
+            setSubmitError('Item name is required.');
+            return;
+        }
+        if (!skuPattern.test(normalizedSku)) {
+            setSubmitError('SKU must be 3-30 characters using letters, numbers, dash, or underscore.');
+            return;
+        }
+        if (!formData.categoryId) {
+            setSubmitError('Category is required.');
+            return;
+        }
+        if (!formData.defaultStoreId) {
+            setSubmitError('Default store is required.');
+            return;
+        }
+        if (!normalizedUom) {
+            setSubmitError('UOM is required.');
+            return;
+        }
+        if (!uomPattern.test(normalizedUom)) {
+            setSubmitError('UOM must be 1-10 characters using letters, numbers, or /-_.');
+            return;
+        }
         setSubmitError(null);
-        createItem(buildItemPayload(formData), {
+        createItem(
+            buildItemPayload({
+                ...formData,
+                itemName: normalizedName,
+                sku: normalizedSku,
+                uom: normalizedUom,
+            }),
+            {
             onSuccess: () => {
                 handleCloseAddModal();
             },
-        });
+        }
+        );
     };
 
     const handleEdit = (item) => {
@@ -290,6 +386,14 @@ const ItemsPage = () => {
         setEditDefaultStoreId(String(item.defaultStoreId ?? ''));
         setEditUom(item.uom || item.unitOfMeasurement || '');
         setEditReorderLevel(String(item.reorderLevel ?? ''));
+        setEditExpiryDate(item.expiryDate || '');
+        const nextEditAmount = item.amount !== undefined && item.amount !== null ? String(item.amount) : '';
+        const nextEditTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null ? String(item.taxAmount) : '';
+        const fallbackTotalAmount = item.totalAmount !== undefined && item.totalAmount !== null ? String(item.totalAmount) : '';
+        setEditAmount(nextEditAmount);
+        setEditTaxAmount(nextEditTaxAmount);
+        setEditTotalAmount(calculateTotalAmount(nextEditAmount, nextEditTaxAmount) || fallbackTotalAmount);
+        setEditDescription(item.description || '');
         setUpdateError(null);
         setShowEditModal(true);
     };
@@ -350,6 +454,11 @@ const ItemsPage = () => {
         setEditDefaultStoreId('');
         setEditUom('');
         setEditReorderLevel('');
+        setEditExpiryDate('');
+        setEditAmount('');
+        setEditTaxAmount('');
+        setEditTotalAmount('');
+        setEditDescription('');
         setUpdateError(null);
     };
 
@@ -424,7 +533,7 @@ const ItemsPage = () => {
 
                         {/* Scrollable Body */}
                         <div className="flex-1 overflow-y-auto px-6 py-6">
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <div className="space-y-4">
                                     <FieldWrapper label="Item Name" className="text-xs" required={true}>
                                         <Input name="itemName" value={formData.itemName} onChange={handleFormChange} placeholder="Enter item name" className="text-sm" />
@@ -455,12 +564,12 @@ const ItemsPage = () => {
                                     <FieldWrapper label="UOM" className="text-xs" required={true}>
                                         <Input name="uom" value={formData.uom} onChange={handleFormChange} placeholder="e.g. pcs, kg, box" className="text-sm" />
                                     </FieldWrapper>
+                                    <FieldWrapper label="Total Amount" className="text-xs">
+                                        <Input type="text" name="totalAmount" value={formData.totalAmount} onChange={handleFormChange} placeholder="0.00" className="text-sm" readOnly={true} />
+                                    </FieldWrapper>
                                 </div>
 
                                 <div className="space-y-4">
-                                    <FieldWrapper label="Reorder Level" className="text-xs" required={true}>
-                                        <Input type="number" min="0" name="reorderLevel" value={formData.reorderLevel} onChange={handleFormChange} placeholder="0" className="text-sm" />
-                                    </FieldWrapper>
                                     <FieldWrapper label="Default Store" className="text-xs" required={true}>
                                         <Select
                                             name="defaultStoreId"
@@ -469,6 +578,30 @@ const ItemsPage = () => {
                                             options={storeOptions}
                                             placeholder="Select store"
                                             className="text-sm"
+                                        />
+                                    </FieldWrapper>
+                                    <FieldWrapper label="Reorder Level" className="text-xs" required={true}>
+                                        <Input type="number" min="0" name="reorderLevel" value={formData.reorderLevel} onChange={handleFormChange} placeholder="0" className="text-sm" />
+                                    </FieldWrapper>
+                                    <FieldWrapper label="Item Expiry" className="text-xs" required={true}>
+                                        <Input type="date" name="expiryDate" value={formData.expiryDate} onChange={handleFormChange} className="text-sm" />
+                                    </FieldWrapper>
+                                    <FieldWrapper label="Amount" className="text-xs" required={true}>
+                                        <Input type="text" name="amount" value={formData.amount} onChange={handleFormChange} placeholder="0.00" className="text-sm" />
+                                    </FieldWrapper>
+                                    <FieldWrapper label="Tax Amount" className="text-xs" required={true}>
+                                        <Input type="text" name="taxAmount" value={formData.taxAmount} onChange={handleFormChange} placeholder="0.00" className="text-sm" />
+                                    </FieldWrapper>
+                                </div>
+
+                                <div className="lg:col-span-2">
+                                    <FieldWrapper label="Description" className="text-xs">
+                                        <Textarea
+                                            name="description"
+                                            value={formData.description}
+                                            onChange={handleFormChange}
+                                            placeholder="Enter item description"
+                                            className="min-h-[80px] text-sm"
                                         />
                                     </FieldWrapper>
                                 </div>
@@ -539,6 +672,44 @@ const ItemsPage = () => {
                         label: "Reorder Level",
                         value: editReorderLevel,
                         onChange: (value) => setEditReorderLevel(value === '' ? '' : String(Math.max(0, Number(value) || 0))),
+                    },
+                    {
+                        label: "Item Expiry",
+                        value: editExpiryDate,
+                        onChange: setEditExpiryDate,
+                        type: "date",
+                    },
+                    {
+                        label: "Amount",
+                        value: editAmount,
+                        onChange: (value) => {
+                            const normalized = normalizeAmountInput(value);
+                            setEditAmount(normalized);
+                            setEditTotalAmount(calculateTotalAmount(normalized, editTaxAmount));
+                        },
+                        type: "text",
+                    },
+                    {
+                        label: "Tax Amount",
+                        value: editTaxAmount,
+                        onChange: (value) => {
+                            const normalized = normalizeAmountInput(value);
+                            setEditTaxAmount(normalized);
+                            setEditTotalAmount(calculateTotalAmount(editAmount, normalized));
+                        },
+                        type: "text",
+                    },
+                    {
+                        label: "Total Amount",
+                        value: editTotalAmount,
+                        onChange: () => {},
+                        type: "text",
+                        readOnly: true,
+                    },
+                    {
+                        label: "Description",
+                        value: editDescription,
+                        onChange: setEditDescription,
                     },
                 ]}
             />

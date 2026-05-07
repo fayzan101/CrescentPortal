@@ -25,6 +25,7 @@ const initialForm = {
     packageId: '',
     assignedTechnicianUserId: '',
     deviceId: '',
+    deviceImei: '',
 };
 
 const mapOptions = (items, idKeys, labelKeys) =>
@@ -95,12 +96,17 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
             packageId: stage.packageId ? String(stage.packageId) : (normalizedSale.defaultPackageId ? String(normalizedSale.defaultPackageId) : ''),
             assignedTechnicianUserId: stage.assignedTechnicianUserId ? String(stage.assignedTechnicianUserId) : '',
             deviceId: stage.deviceId ? String(stage.deviceId) : '',
+            deviceImei: stage.deviceImei ? String(stage.deviceImei) : undefined,
         };
         // Only update if values actually changed
         setForm(prev => {
-            const isSame = Object.keys(newForm).every(key => prev[key] === newForm[key]);
+            const nextForm = {
+                ...newForm,
+                deviceImei: newForm.deviceImei !== undefined ? newForm.deviceImei : (prev.deviceImei || ''),
+            };
+            const isSame = Object.keys(nextForm).every(key => prev[key] === nextForm[key]);
             if (isSame) return prev;
-            return newForm;
+            return nextForm;
         });
     }, [sale, normalizedSale.defaultProductId, normalizedSale.defaultPackageId]);
 
@@ -108,11 +114,22 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
         const { name, value } = e.target;
         setSuccessMessage('');
         setValidationMessage('');
+        if (name === 'deviceImei') {
+            const digitsOnly = value.replace(/\D/g, '').slice(0, 15);
+            setForm((prev) => ({ ...prev, [name]: digitsOnly }));
+            return;
+        }
         setForm((prev) => ({ ...prev, [name]: value }));
     };
 
+    const isValidImei = (value) => /^\d{15}$/.test(value);
+
     const submit = async (submitToTechnician) => {
         if (!saleId) return;
+        if (form.deviceImei && !isValidImei(form.deviceImei)) {
+            setValidationMessage('Device IMEI must be exactly 15 digits.');
+            return;
+        }
         if (submitToTechnician) {
             const requiredFields = [
                 'productId',
@@ -264,6 +281,10 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                             <FieldWrapper label="Select Accessories 2" required className="text-sm">
                                 <Select name="accessory2Id" value={form.accessory2Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
                             </FieldWrapper>
+
+                            <FieldWrapper label="Select Accessories 3" required className="text-sm">
+                                <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
+                            </FieldWrapper>
                         </div>
 
                         {/* Column 2 */}
@@ -290,12 +311,19 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                                 <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
                             </FieldWrapper>
 
+                            <FieldWrapper label="Device IMEI" required className="text-sm">
+                                <Input
+                                    name="deviceImei"
+                                    value={form.deviceImei}
+                                    onChange={handleChange}
+                                    placeholder="Enter 15-digit IMEI"
+                                    className="text-sm py-2"
+                                    maxLength={15}
+                                />
+                            </FieldWrapper>
+
                             <FieldWrapper label="Select Accessories 1" required className="text-sm">
                                 <Select name="accessory1Id" value={form.accessory1Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
-                            </FieldWrapper>
-                            
-                            <FieldWrapper label="Select Accessories 3" required className="text-sm">
-                                <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
                             </FieldWrapper>
                         </div>
                     </div>

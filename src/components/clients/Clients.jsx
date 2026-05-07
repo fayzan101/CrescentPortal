@@ -1,7 +1,7 @@
 "use client";
 
 import { useClientContext } from "@/context/clientContext";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FiSearch, FiEye, FiEdit, FiTrash2, FiPlus, FiFilter, FiChevronLeft, FiChevronRight, FiMoreVertical } from "react-icons/fi";
 import { useSales } from "@/hooks/sales/useSales";
 import { deleteSale } from "@/services/sales.service";
@@ -68,6 +68,12 @@ const Clients = () => {
   const [deletedClientIds, setDeletedClientIds] = useState([]);
   const [deletingId, setDeletingId] = useState(null);
   const [actionMessage, setActionMessage] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [officeFilter, setOfficeFilter] = useState("All");
+  const [minBalance, setMinBalance] = useState("");
+  const [maxBalance, setMaxBalance] = useState("");
+  const [minVehicles, setMinVehicles] = useState("");
 
   const { openAddClientForm } = useClientContext();
   const { data: sales = [], loading, error } = useSales();
@@ -112,12 +118,59 @@ const Clients = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const filteredClients = clients.filter(
-    (client) =>
+  const categoryOptions = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(clients.map((client) => client.category).filter(Boolean))
+    );
+    return ["All", ...uniqueCategories];
+  }, [clients]);
+
+  const officeOptions = useMemo(() => {
+    const uniqueOffices = Array.from(
+      new Set(clients.map((client) => client.office).filter(Boolean))
+    );
+    return ["All", ...uniqueOffices];
+  }, [clients]);
+
+  const activeFilterCount = useMemo(() => {
+    return [
+      categoryFilter !== "All",
+      officeFilter !== "All",
+      minBalance !== "",
+      maxBalance !== "",
+      minVehicles !== "",
+    ].filter(Boolean).length;
+  }, [categoryFilter, officeFilter, minBalance, maxBalance, minVehicles]);
+
+  const filteredClients = clients.filter((client) => {
+    const matchesSearch =
       String(client.name).toLowerCase().includes(search.toLowerCase()) ||
       String(client.irNo).toLowerCase().includes(search.toLowerCase()) ||
-      String(client.cnic).includes(search)
-  );
+      String(client.cnic).includes(search);
+    const matchesCategory = categoryFilter === "All" || client.category === categoryFilter;
+    const matchesOffice = officeFilter === "All" || client.office === officeFilter;
+
+    const balanceValue = Number(String(client.dueBalance).replace(/[^0-9.-]/g, ""));
+    const safeBalance = Number.isFinite(balanceValue) ? balanceValue : 0;
+    const minBalanceValue = minBalance === "" ? null : Number(minBalance);
+    const maxBalanceValue = maxBalance === "" ? null : Number(maxBalance);
+    const matchesMinBalance = minBalanceValue === null || safeBalance >= minBalanceValue;
+    const matchesMaxBalance = maxBalanceValue === null || safeBalance <= maxBalanceValue;
+
+    const vehiclesValue = Number(client.vehicles);
+    const safeVehicles = Number.isFinite(vehiclesValue) ? vehiclesValue : 0;
+    const minVehiclesValue = minVehicles === "" ? null : Number(minVehicles);
+    const matchesVehicles = minVehiclesValue === null || safeVehicles >= minVehiclesValue;
+
+    return (
+      matchesSearch &&
+      matchesCategory &&
+      matchesOffice &&
+      matchesMinBalance &&
+      matchesMaxBalance &&
+      matchesVehicles
+    );
+  });
 
   const totalPages = Math.ceil(filteredClients.length / rowsPerPage);
   const startIndex = (currentPage - 1) * rowsPerPage;
@@ -157,7 +210,7 @@ const Clients = () => {
           
           <div className="flex justify-between items-center pt-2 border-t border-gray-100">
             <div className="text-xs text-gray-500">
-              <span className="font-medium text-green-600">${client.dueBalance}</span>
+              <span className="font-medium text-green-600">Rs {client.dueBalance}</span>
               <span className="ml-2">•</span>
               <span className="ml-2">{client.office}</span>
             </div>
@@ -210,7 +263,7 @@ const Clients = () => {
                   {client.category}
                 </span>
               </td>
-              <td className="p-2 font-medium text-green-600 text-sm">${client.dueBalance}</td>
+              <td className="p-2 font-medium text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-2">
                 <div className="flex items-center gap-1">
                   <button className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
@@ -269,7 +322,7 @@ const Clients = () => {
                   {client.category}
                 </span>
               </td>
-              <td className="p-3 font-medium text-green-600 text-sm">${client.dueBalance}</td>
+              <td className="p-3 font-medium text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-3">
                 <div className="flex items-center gap-1">
                   <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
@@ -333,7 +386,7 @@ const Clients = () => {
                   {client.category}
                 </span>
               </td>
-              <td className="p-3 font-bold text-green-600 text-sm">${client.dueBalance}</td>
+              <td className="p-3 font-bold text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-3">
                 <div className="flex items-center gap-1">
                   <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" title="View">
@@ -378,10 +431,116 @@ const Clients = () => {
               <span className="hidden xs:inline">Add Client</span>
               <span className="xs:hidden">Add New</span>
             </button>
-            <button className="flex items-center gap-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-3 py-2 rounded-lg font-medium text-xs md:text-sm">
-              <FiFilter className="w-4 h-4" />
-              <span className="xs:inline">Filter</span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setIsFilterOpen((prev) => !prev)}
+                className="flex items-center gap-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 px-3 py-2 rounded-lg font-medium text-xs md:text-sm"
+                type="button"
+              >
+                <FiFilter className="w-4 h-4" />
+                <span className="xs:inline">Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}</span>
+              </button>
+              {isFilterOpen && (
+                <div className="absolute right-0 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg z-10">
+                  <div className="p-3 space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-500 mb-1">Category</label>
+                      <select
+                        value={categoryFilter}
+                        onChange={(e) => {
+                          setCategoryFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
+                      >
+                        {categoryOptions.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-500 mb-1">Office</label>
+                      <select
+                        value={officeFilter}
+                        onChange={(e) => {
+                          setOfficeFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
+                      >
+                        {officeOptions.map((office) => (
+                          <option key={office} value={office}>
+                            {office}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-500 mb-1">Balance range (Rs)</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Min"
+                          value={minBalance}
+                          onChange={(e) => {
+                            setMinBalance(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Max"
+                          value={maxBalance}
+                          onChange={(e) => {
+                            setMaxBalance(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-500 mb-1">Min vehicles</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={minVehicles}
+                        onChange={(e) => {
+                          setMinVehicles(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-xs"
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => {
+                          setCategoryFilter("All");
+                          setOfficeFilter("All");
+                          setMinBalance("");
+                          setMaxBalance("");
+                          setMinVehicles("");
+                          setCurrentPage(1);
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-700"
+                        type="button"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

@@ -57,9 +57,32 @@ const AddNewSaleForm = ({ onSuccess }) => {
         setForm((prev) => ({ ...prev, [name]: value }));
     };
 
+    const isValidCnic = (value) => /^\d{13}$/.test(value);
+    const isValidPhone = (value) => /^\d{11}$/.test(value);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
+            if (!isValidCnic(form.cnicNo)) {
+                setValidationError('CNIC must be 13 digits (numbers only).');
+                return;
+            }
+
+            if (form.cellNo && !isValidPhone(form.cellNo)) {
+                setValidationError('Cell number must be 11 digits (numbers only).');
+                return;
+            }
+
+            if (form.phoneHome && !isValidPhone(form.phoneHome)) {
+                setValidationError('Home phone must be 11 digits (numbers only).');
+                return;
+            }
+
+            if (form.phoneOffice && !isValidPhone(form.phoneOffice)) {
+                setValidationError('Office phone must be 11 digits (numbers only).');
+                return;
+            }
+
             const selectedClientCategoryValue = form.clientCategoryId || clientCategoryOptions[0]?.value;
             const resolvedClientCategoryId = Number(selectedClientCategoryValue);
 
@@ -133,7 +156,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
                     {/* Column 1 - Client Information */}
                     <div className="flex flex-col gap-3 md:gap-3">
-                        <FieldWrapper label="Select Client Category" required className="text-sm">
+                        <FieldWrapper label="Select Client Category" className="text-sm">
                             <Select
                                 name="clientCategoryId"
                                 value={form.clientCategoryId}
@@ -161,11 +184,11 @@ const AddNewSaleForm = ({ onSuccess }) => {
                             />
                         </FieldWrapper>
 
-                        <FieldWrapper label="Full Name" required className="text-sm">
+                        <FieldWrapper label="Full Name" className="text-sm">
                             <Input name="fullName" value={form.fullName} onChange={handleChange} placeholder="Enter full name" className="text-sm py-2" />
                         </FieldWrapper>
 
-                        <FieldWrapper label="CNIC No." required className="text-sm">
+                        <FieldWrapper label="CNIC No." className="text-sm">
                             <Input
                                 name="cnicNo"
                                 value={form.cnicNo}
@@ -195,7 +218,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                             />
                         </FieldWrapper>
 
-                        <FieldWrapper label="Email ID" required className="text-sm">
+                        <FieldWrapper label="Email ID" className="text-sm">
                             <Input name="emailId" value={form.emailId} onChange={handleChange} placeholder="Enter email address" className="text-sm py-2" type="email" />
                         </FieldWrapper>
 
@@ -206,7 +229,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
 
                     {/* Column 2 - Client Details */}
                     <div className="flex flex-col gap-3 md:gap-3">
-                        <FieldWrapper label="Select Client Status" required className="text-sm">
+                        <FieldWrapper label="Select Client Status" className="text-sm">
                             <Select
                                 name="clientStatus"
                                 value={form.clientStatus}
@@ -280,7 +303,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
                         {/* Column 1 */}
                         <div className="flex flex-col gap-3 md:gap-3">
-                            <FieldWrapper label="Select Product" required className="text-sm">
+                            <FieldWrapper label="Select Product" className="text-sm">
                                 <Select
                                     name="productId"
                                     value={form.productId}
@@ -292,7 +315,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                                 />
                             </FieldWrapper>
                             
-                            <FieldWrapper label="Sale Amount" required className="text-sm">
+                            <FieldWrapper label="Sale Amount" className="text-sm">
                                 <Input
                                     name="saleAmount"
                                     value={form.saleAmount}
@@ -306,7 +329,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                                 />
                             </FieldWrapper>
 
-                            <FieldWrapper label="Sale Type" required className="text-sm">
+                            <FieldWrapper label="Sale Type" className="text-sm">
                                 <Select
                                     name="saleType"
                                     value={form.saleType}
@@ -325,7 +348,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
 
                         {/* Column 2 */}
                         <div className="flex flex-col gap-3 md:gap-3">
-                            <FieldWrapper label="Select Package Type" required className="text-sm">
+                            <FieldWrapper label="Select Package Type" className="text-sm">
                                 <Select
                                     name="packageId"
                                     value={form.packageId}
@@ -337,7 +360,7 @@ const AddNewSaleForm = ({ onSuccess }) => {
                                 />
                             </FieldWrapper>
 
-                            <FieldWrapper label="Renewal Charges" required className="text-sm">
+                            <FieldWrapper label="Renewal Charges" className="text-sm">
                                 <Input
                                     name="renewalCharges"
                                     value={form.renewalCharges}
