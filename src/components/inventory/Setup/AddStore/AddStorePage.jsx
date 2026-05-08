@@ -145,7 +145,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
 
     const tableColumns = [
         { key: 'storeName', label: 'Store Name', width: '20%' },
-        { key: 'location', label: 'Location', width: '20%' },
+        { key: 'location', label: 'City', width: '20%' },
         {
             key: 'isActive',
             label: 'Status',
@@ -286,7 +286,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
                             </div>
 
                             <div className="space-y-1">
-                                <FieldWrapper label="Location" required className="text-sm">
+                                <FieldWrapper label="City" required className="text-sm">
                                     <Input
                                         name="location"
                                         value={formData.location}

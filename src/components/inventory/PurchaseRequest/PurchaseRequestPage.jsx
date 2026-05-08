@@ -17,6 +17,7 @@ import { usePurchaseRequests } from '@/hooks/inventory/purchase request/usePurch
 import { useCreatePurchaseRequest } from '@/hooks/inventory/purchase request/useCreatePurchaseRequest';
 import { useUpdatePurchaseRequest } from '@/hooks/inventory/purchase request/useUpdatePurchaseRequest';
 import { useDeletePurchaseRequest } from '@/hooks/inventory/purchase request/useDeletePurchaseRequest';
+import { useItemById } from '@/hooks/inventory/items/useItemById';
 import { purchaseRequestLineList, resolveItemRecordId, resolveItemUnitOfMeasurement } from '@/lib/inventoryItemMeta';
 
 function formatApiErrorMessage(error, fallback) {
@@ -25,6 +26,79 @@ function formatApiErrorMessage(error, fallback) {
   if (typeof msg === 'string' && msg) return msg;
   return error?.message || fallback;
 }
+
+function extractItemRecord(payload) {
+  if (Array.isArray(payload)) return payload[0] || null;
+  if (!payload || typeof payload !== 'object') return null;
+
+  const preferredKeys = ['data', 'item', 'result', 'details'];
+  for (const key of preferredKeys) {
+    const candidate = payload[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+
+  return payload;
+}
+
+function formatMoney(value) {
+  if (value === undefined || value === null || value === '') return 'N/A';
+  const asNumber = Number(value);
+  if (!Number.isFinite(asNumber)) return String(value);
+  return asNumber.toFixed(2);
+}
+
+const PurchaseRequestItemDetailRow = ({ item, index, showAction, onRemove }) => {
+  const itemRecordId = item.itemId ?? item.inventoryItemId ?? null;
+  const { data: itemByIdData, isLoading: isItemLoading } = useItemById(itemRecordId, { enabled: !!itemRecordId });
+
+  const itemDetails = useMemo(() => extractItemRecord(itemByIdData), [itemByIdData]);
+
+  const unitPrice = itemDetails?.amount ?? itemDetails?.unitPrice ?? itemDetails?.price ?? item.unitPrice ?? null;
+  const taxAmount = itemDetails?.taxAmount ?? item.taxAmount ?? null;
+  const computedTotal =
+    itemDetails?.totalAmount ??
+    item.totalAmount ??
+    (Number.isFinite(Number(unitPrice)) && Number.isFinite(Number(taxAmount))
+      ? Number(unitPrice) + Number(taxAmount)
+      : null);
+  const categoryName =
+    itemDetails?.category?.categoryName ||
+    itemDetails?.category?.name ||
+    itemDetails?.categoryName ||
+    'N/A';
+  const subCategoryName =
+    itemDetails?.subCategory?.subCategoryName ||
+    itemDetails?.subCategory?.name ||
+    itemDetails?.subCategoryName ||
+    'N/A';
+
+  return (
+    <tr className="border-b border-gray-200 hover:bg-gray-50">
+      <td className="px-4 py-3 text-gray-700">{String(index + 1).padStart(2, '0')}</td>
+      <td className="px-4 py-3 text-gray-700">{item.itemSku || item.sku || 'N/A'}</td>
+      <td className="px-4 py-3 text-gray-700">{item.itemName || item.name || 'N/A'}</td>
+      <td className="px-4 py-3 text-gray-700">{item.unitOfMeasurement || item.uom || 'N/A'}</td>
+      <td className="px-4 py-3 text-gray-700">{item.quantity ?? item.qty ?? 'N/A'}</td>
+      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(unitPrice)}</td>
+      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(taxAmount)}</td>
+      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(computedTotal)}</td>
+      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : categoryName}</td>
+      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : subCategoryName}</td>
+      {showAction && (
+        <td className="px-4 py-3 text-center">
+          <button
+            onClick={() => onRemove(item.id)}
+            className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white mx-auto"
+          >
+            ✕
+          </button>
+        </td>
+      )}
+    </tr>
+  );
+};
 
 const PurchaseRequestPage = () => {
   const queryClient = useQueryClient();
@@ -532,26 +606,23 @@ const PurchaseRequestPage = () => {
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Item Name</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Unit</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Quantity</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Unit Price</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Tax Amount</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Total Amount</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Category</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Sub Category</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-700">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {purchaseRequestItems.map((item, index) => (
-                          <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
-                            <td className="px-4 py-3 text-gray-700">{String(index + 1).padStart(2, '0')}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.itemSku}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.itemName}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.unitOfMeasurement}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.quantity}</td>
-                            <td className="px-4 py-3 text-center">
-                              <button
-                                onClick={() => handleRemoveItem(item.id)}
-                                className="w-6 h-6 rounded bg-red-500 hover:bg-red-600 flex items-center justify-center text-white mx-auto"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
+                          <PurchaseRequestItemDetailRow
+                            key={item.id}
+                            item={item}
+                            index={index}
+                            showAction
+                            onRemove={handleRemoveItem}
+                          />
                         ))}
                       </tbody>
                     </table>
@@ -582,7 +653,7 @@ const PurchaseRequestPage = () => {
 
       {previewRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '90vh' }}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col" style={{ maxHeight: '95vh' }}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
               <h2 className="text-lg font-semibold text-gray-900">Purchase Request Details</h2>
               <button onClick={() => setPreviewRequest(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
@@ -615,20 +686,26 @@ const PurchaseRequestPage = () => {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">S. No.</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Item SKU</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Item Name</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Unit</th>
                           <th className="text-left px-4 py-3 font-semibold text-gray-700">Quantity</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Unit Price</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Tax Amount</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Total Amount</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Category</th>
+                          <th className="text-left px-4 py-3 font-semibold text-gray-700">Sub Category</th>
                         </tr>
                       </thead>
                       <tbody>
                         {previewItems.map((item, idx) => (
-                          <tr key={item.id ?? item.purchaseRequestLineId ?? `line-${idx}`} className="border-b border-gray-200 hover:bg-gray-50">
-                            <td className="px-4 py-3 text-gray-700">{item.itemSku || item.sku || 'N/A'}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.itemName || item.name || 'N/A'}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.unitOfMeasurement || item.uom || 'N/A'}</td>
-                            <td className="px-4 py-3 text-gray-700">{item.quantity ?? item.qty ?? 'N/A'}</td>
-                          </tr>
+                          <PurchaseRequestItemDetailRow
+                            key={item.id ?? item.purchaseRequestLineId ?? `line-${idx}`}
+                            item={item}
+                            index={idx}
+                            showAction={false}
+                          />
                         ))}
                       </tbody>
                     </table>

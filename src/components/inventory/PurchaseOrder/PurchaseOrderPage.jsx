@@ -13,6 +13,8 @@ import { useDropdownVendors } from '@/hooks/inventory/utility/useDropdownVendors
 import { usePurchaseOrders } from '@/hooks/inventory/purchase orders/usePurchaseOrders';
 import { useCreatePurchaseOrder } from '@/hooks/inventory/purchase orders/useCreatePurchaseOrder';
 import { useDeletePurchaseOrder } from '@/hooks/inventory/purchase orders/useDeletePurchaseOrder';
+import { useApprovePurchaseOrder } from '@/hooks/inventory/purchase orders/useApprovePurchaseOrder';
+import { useRejectPurchaseOrder } from '@/hooks/inventory/purchase orders/useRejectPurchaseOrder';
 import { useApprovePurchaseRequest } from '@/hooks/inventory/purchase request/useApprovePurchaseRequest';
 import { useRejectPurchaseRequest } from '@/hooks/inventory/purchase request/useRejectPurchaseRequest';
 import { usePurchaseRequests } from '@/hooks/inventory/purchase request/usePurchaseRequests';
@@ -37,6 +39,8 @@ const PurchaseOrderPage = () => {
     const [previewPO, setPreviewPO] = useState(null);
     const [deleteModal, setDeleteModal] = useState({ isOpen: false, poId: null });
     const [submitError, setSubmitError] = useState('');
+    const [poActionPendingId, setPoActionPendingId] = useState(null);
+    const [poRejectReason, setPoRejectReason] = useState('');
     const [purchaseRequestActionPendingId, setPurchaseRequestActionPendingId] = useState(null);
     const [purchaseRequestRejectReason, setPurchaseRequestRejectReason] = useState('');
 
@@ -242,6 +246,32 @@ const PurchaseOrderPage = () => {
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
             setDeleteModal({ isOpen: false, poId: null });
+        },
+    });
+
+    const { mutate: approvePurchaseOrder } = useApprovePurchaseOrder({
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+            setPoActionPendingId(null);
+            setPreviewPO((prev) => (prev ? { ...prev, approvalStatus: 'APPROVED' } : prev));
+            setPoRejectReason('');
+        },
+        onError: (error) => {
+            setPoActionPendingId(null);
+            setSubmitError(error?.response?.data?.message || error?.message || 'Failed to approve purchase order.');
+        },
+    });
+
+    const { mutate: rejectPurchaseOrder } = useRejectPurchaseOrder({
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+            setPoActionPendingId(null);
+            setPreviewPO((prev) => (prev ? { ...prev, approvalStatus: 'REJECTED' } : prev));
+            setPoRejectReason('');
+        },
+        onError: (error) => {
+            setPoActionPendingId(null);
+            setSubmitError(error?.response?.data?.message || error?.message || 'Failed to reject purchase order.');
         },
     });
 
@@ -552,6 +582,26 @@ const PurchaseOrderPage = () => {
         rejectPurchaseRequest({ id, reason: purchaseRequestRejectReason.trim() });
     };
 
+    const handleApprovePO = () => {
+        const id = previewPO?.id;
+        if (!id) return;
+        setSubmitError('');
+        setPoActionPendingId(id);
+        approvePurchaseOrder(id);
+    };
+
+    const handleRejectPO = () => {
+        const id = previewPO?.id;
+        if (!id) return;
+        if (!poRejectReason.trim()) {
+            setSubmitError('Rejection reason is required.');
+            return;
+        }
+        setSubmitError('');
+        setPoActionPendingId(id);
+        rejectPurchaseOrder({ id, reason: poRejectReason.trim() });
+    };
+
     return (
         <div className="bg-white p-8 min-h-screen scrollbar-hide m-5 rounded-lg">
             <div className="flex justify-between items-center mb-8">
@@ -591,7 +641,7 @@ const PurchaseOrderPage = () => {
 
             {showAddModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col" style={{ maxHeight: '90vh' }}>
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col" style={{ maxHeight: '95vh' }}>
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                             <h2 className="text-lg font-semibold text-gray-900">Add New Purchase Order</h2>
                             <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 cursor-pointer">
@@ -890,7 +940,7 @@ const PurchaseOrderPage = () => {
 
             {previewPO && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl flex flex-col" style={{ maxHeight: '95vh' }}>
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                             <h2 className="text-lg font-semibold text-gray-900">Purchase Order Details</h2>
                             <button onClick={() => setPreviewPO(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
@@ -944,6 +994,28 @@ const PurchaseOrderPage = () => {
                         </div>
 
                         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-white shrink-0">
+                            
+                                <Input
+                                    value={poRejectReason}
+                                    onChange={(e) => setPoRejectReason(e.target.value)}
+                                    placeholder="Rejection reason"
+                                    className="text-sm py-2 w-64 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    disabled={poActionPendingId === previewPO.id || previewPO.approvalStatus === 'APPROVED' || previewPO.approvalStatus === 'REJECTED'}
+                                />
+                                <button
+                                    onClick={handleRejectPO}
+                                    disabled={poActionPendingId === previewPO.id || previewPO.approvalStatus === 'APPROVED' || previewPO.approvalStatus === 'REJECTED'}
+                                    className="cursor-pointer w-40 py-3.5 bg-red-600 hover:bg-red-900 duration-100 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {poActionPendingId === previewPO.id ? 'Processing...' : 'Reject'}
+                                </button>
+                                <button
+                                    onClick={handleApprovePO}
+                                    disabled={poActionPendingId === previewPO.id || previewPO.approvalStatus === 'APPROVED' || previewPO.approvalStatus === 'REJECTED'}
+                                    className="cursor-pointer w-40 py-3.5 bg-green-600 hover:bg-green-900 duration-100 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {poActionPendingId === previewPO.id ? 'Processing...' : 'Approve'}
+                                </button>
                             <button
                                 onClick={() => setPreviewPO(null)}
                                 className="w-40 py-3.5 bg-customBlue text-white hover:bg-customBlue/90 rounded-lg text-sm font-medium transition cursor-pointer"
@@ -957,7 +1029,7 @@ const PurchaseOrderPage = () => {
 
             {deleteModal.isOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={{ maxHeight: '90vh' }}>
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col" style={{ maxHeight: '95vh' }}>
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                             <h2 className="text-lg font-semibold text-gray-900">Confirm Delete</h2>
                         </div>
