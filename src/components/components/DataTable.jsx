@@ -27,6 +27,7 @@ const DataTable = ({
   itemsPerPage = 6,
   showPageSizeSelector = true,
   pageSizeOptions = [5, 10, 25, 50],
+  rowActions = null,
 }) => {
   const [pageSize, setPageSize] = useState(itemsPerPage);
   const [toggleStates, setToggleStates] = useState(() =>
@@ -191,20 +192,42 @@ const DataTable = ({
     });
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     const { itemIndex, itemName } = deleteConfirmation;
     const item = items[itemIndex];
     const itemId = getItemId(item) ?? itemName;
-    setDeleteConfirmation({ isOpen: false, itemName: "", itemIndex: null });
-
-    if (onDelete) onDelete(itemId, itemIndex, item);
-
-    setSuccessModal({
-      isOpen: true,
-      title: "Deleted Successfully",
-      message: `"${itemName}" has been deleted successfully.`,
-      type: "delete",
+  
+    setDeleteConfirmation({
+      isOpen: false,
+      itemName: "",
+      itemIndex: null,
     });
+  
+    if (!onDelete) return;
+  
+    try {
+      const response = await onDelete(itemId, itemIndex, item);
+  
+      const status =
+        response?.status ||
+        response?.response?.status;
+  
+      const isSuccess =
+        (status >= 200 && status < 300) ||
+        response === true ||
+        response === undefined;
+  
+      if (!isSuccess) return;
+  
+      setSuccessModal({
+        isOpen: true,
+        title: "Deleted Successfully",
+        message: `"${itemName}" has been deleted successfully.`,
+        type: "delete",
+      });
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const handleEditClick = (item, index) => {
@@ -441,7 +464,7 @@ const DataTable = ({
                         {column.label}
                       </th>
                     ))}
-                    {(showView || showEdit || showDelete || showToggle) && (
+                    {(showView || showEdit || showDelete || showToggle || rowActions) && (
                       <th className="py-3 px-4 font-semibold text-gray-700 text-sm text-center">
                         Action
                       </th>
@@ -458,7 +481,7 @@ const DataTable = ({
                             : getColumnValue(item, column.key)}
                         </td>
                       ))}
-                      {(showView || showEdit || showDelete || showToggle) && (
+                      {(showView || showEdit || showDelete || showToggle || rowActions) && (
                         <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             {showView && <ViewButton onClick={() => handleViewClick(item, index)} />}
@@ -470,6 +493,7 @@ const DataTable = ({
                                 onClick={() => handleToggle(item, index)}
                               />
                             )}
+                            {typeof rowActions === "function" ? rowActions(item, index) : null}
                           </div>
                         </td>
                       )}

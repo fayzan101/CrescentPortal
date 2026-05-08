@@ -59,6 +59,19 @@ const normalizeAuthPayload = (data) => {
     };
 };
 
+const resolveErrorMessage = (error) => {
+    const rawMessage = error?.response?.data?.message;
+    if (Array.isArray(rawMessage)) return rawMessage.join('\n');
+    if (typeof rawMessage === 'string' && rawMessage.trim().length > 0) return rawMessage;
+    return error?.response?.data?.error || error?.message || 'Request failed';
+};
+
+const showBadRequestDialog = (error) => {
+    if (typeof window === 'undefined') return;
+    const message = resolveErrorMessage(error);
+    window.alert(message);
+};
+
 let isRefreshing = false;
 let refreshQueue = [];
 
@@ -76,6 +89,17 @@ const resolveRefreshQueue = (error, token) => {
 const isAuthEndpoint = (url = '') => {
     return url.includes(`${AUTH_BASE}/login`) || url.includes(`${AUTH_BASE}/register`) || url.includes(`${AUTH_BASE}/refresh`);
 };
+
+publicRequest.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error?.response?.status === 400) {
+            showBadRequestDialog(error);
+        }
+        return Promise.reject(error);
+    }
+);
+
 userRequest.interceptors.request.use(
     (config) => {
         const token = getTokenFromState();
@@ -152,6 +176,10 @@ userRequest.interceptors.response.use(
             }
         }
         switch (error.response?.status) {
+            case 400:
+                console.error('Bad request:', safeErrorDetails);
+                showBadRequestDialog(error);
+                break;
             case 401:
                 console.error('Authentication failed:', safeErrorDetails);
                 store.dispatch(signOut());

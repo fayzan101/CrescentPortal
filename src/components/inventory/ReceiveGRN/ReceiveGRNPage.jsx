@@ -1,19 +1,111 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Filter, Trash2, X, Minus, Loader, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, X, Loader, AlertCircle } from 'lucide-react';
 import DataTable from '@/components/components/DataTable';
 import { useGetAllGRNs } from '@/hooks/inventory/Grn/useGetAllGRNs';
 import { useCreateGRN } from '@/hooks/inventory/Grn/useCreateGRN';
 import { useDeleteGRN } from '@/hooks/inventory/Grn/useDeleteGRN';
 import { useConfirmGRN } from '@/hooks/inventory/Grn/useConfirmGRN';
 import { useUpdateGRN } from '@/hooks/inventory/Grn/useUpdateGRN';
+import { useItemById } from '@/hooks/inventory/items/useItemById';
+import { useItems } from '@/hooks/inventory/items/useItems';
+import { useAppUserById } from '@/hooks/users/useAppUserById';
 import { usePurchaseOrders } from '@/hooks/inventory/purchase orders/usePurchaseOrders';
-import { useDropdownItems } from '@/hooks/inventory/utility/useDropdownItems';
 import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
 import { useDropdownVendors } from '@/hooks/inventory/utility/useDropdownVendors';
 import { normalizeApiList } from '@/lib/normalizeApiList';
+
+const extractItemRecord = (payload) => {
+  if (Array.isArray(payload)) return payload[0] || null;
+  if (!payload || typeof payload !== 'object') return null;
+  const preferredKeys = ['data', 'item', 'result', 'details'];
+  for (const key of preferredKeys) {
+    const candidate = payload[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+  }
+  return payload;
+};
+
+const extractUserRecord = (payload) => {
+  if (Array.isArray(payload)) return payload[0] || null;
+  if (!payload || typeof payload !== 'object') return null;
+  const preferredKeys = ['data', 'user', 'result', 'details'];
+  for (const key of preferredKeys) {
+    const candidate = payload[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+  }
+  return payload;
+};
+
+const UserEmailCell = ({ userId }) => {
+  const { data } = useAppUserById(userId, { enabled: !!userId });
+  const user = useMemo(() => extractUserRecord(data), [data]);
+  return user?.email || user?.emailId || user?.userEmail || userId || 'N/A';
+};
+
+const GrnItemRow = ({
+  item,
+  index,
+  allItems,
+  onItemChange,
+  onQtyChange,
+  onPriceResolved,
+  onRemove,
+  getLineTotal,
+}) => {
+  const { data: itemByIdData } = useItemById(item.itemId, { enabled: !!item.itemId });
+  const itemDetails = useMemo(() => extractItemRecord(itemByIdData), [itemByIdData]);
+  const resolvedUnitPrice = Number(itemDetails?.amount ?? itemDetails?.unitPrice ?? itemDetails?.price ?? item.unitPrice ?? 0);
+
+  useEffect(() => {
+    const currentPrice = Number(item.unitPrice ?? 0);
+    if (Number.isFinite(resolvedUnitPrice) && resolvedUnitPrice !== currentPrice) {
+      onPriceResolved(item.id, resolvedUnitPrice);
+    }
+  }, [item.id, item.unitPrice, onPriceResolved, resolvedUnitPrice]);
+
+  return (
+    <tr className="border-b hover:bg-gray-50 transition">
+      <td className="px-4 py-3 text-gray-800 text-sm font-medium">{index + 1}</td>
+      <td className="px-4 py-3 text-gray-700 text-sm">{item.sku}</td>
+      <td className="px-4 py-3 text-gray-700 text-sm">
+        <select
+          value={item.itemId ?? ''}
+          onChange={(e) => onItemChange(item.id, e.target.value)}
+          className="w-full border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
+        >
+          {allItems.map((line) => (
+            <option key={line.id ?? line.itemId} value={line.id ?? line.itemId}>
+              {line.name || line.itemName} ({line.sku || `#${line.id ?? line.itemId}`})
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-4 py-3 text-gray-700 text-sm font-semibold">
+        <input
+          type="number"
+          min="1"
+          value={item.quantityReceived}
+          onChange={(e) => onQtyChange(item.id, e.target.value)}
+          className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm"
+        />
+      </td>
+      <td className="px-4 py-3 text-gray-700 text-sm">{resolvedUnitPrice.toFixed(2)}</td>
+      <td className="px-4 py-3 text-gray-700 text-sm font-semibold">{getLineTotal({ ...item, unitPrice: resolvedUnitPrice }).toFixed(2)}</td>
+      <td className="px-4 py-3 text-center">
+        <button
+          onClick={() => onRemove(item.id)}
+          className="bg-red-500 hover:bg-red-600 text-white p-2 rounded transition inline-flex items-center justify-center"
+          title="Delete"
+        >
+          <Trash2 size={16} />
+        </button>
+      </td>
+    </tr>
+  );
+};
 
 const ReceiveGRNPage = () => {
   const queryClient = useQueryClient();
@@ -30,18 +122,17 @@ const ReceiveGRNPage = () => {
     purchaseOrderId: '',
     storeId: '',
     vendorId: '',
-    grnType: 'PURCHASE',
+    invoicePeriodDays: 30,
     itemId: '',
     quantityReceived: 1,
     conditionStatus: 'NEW'
   });
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, grnNumber } for delete confirmation modal
   const [previewGrn, setPreviewGrn] = useState(null); // GRN being previewed
   const [editingGrnId, setEditingGrnId] = useState(null); // ID of GRN being edited
 
   const { data: grnsRaw, isLoading: loading } = useGetAllGRNs();
   const { data: purchaseOrdersRaw, isLoading: loadingPOs } = usePurchaseOrders();
-  const { data: itemsRaw } = useDropdownItems();
+  const { data: itemsRaw } = useItems();
   const { data: storesRaw } = useDropdownStores();
   const { data: vendorsRaw, isLoading: loadingVendors } = useDropdownVendors();
   const { mutateAsync: createGRN } = useCreateGRN();
@@ -127,6 +218,8 @@ const ReceiveGRNPage = () => {
         receivedByUserId: grn.receivedByUserId ?? grn.receivedByUser ?? grn.receivedBy ?? null,
         confirmedByUserId: grn.confirmedByUserId ?? null,
         confirmedAt: grn.confirmedAt ?? null,
+        createdAt: grn.createdAt ?? grn.receivedDate ?? null,
+        invoicePeriodDays: grn.invoicePeriodDays ?? null,
         remarks: grn.remarks ?? null,
         receivedDate: grn.receivedDate || grn.createdAt || grn.updatedAt || null,
         items: Array.isArray(grn.lines) ? grn.lines : Array.isArray(grn.items) ? grn.items : [],
@@ -162,7 +255,6 @@ const ReceiveGRNPage = () => {
           grn.poNo,
           grn.prNo,
           grn.storeName,
-          grn.grnType,
           grn.receivedByUserId,
         ]
           .filter(Boolean)
@@ -177,14 +269,31 @@ const ReceiveGRNPage = () => {
       { key: 'poNo', label: 'PO No.', width: '12%' },
       { key: 'prNo', label: 'PR No.', width: '12%' },
       { key: 'storeName', label: 'Store', width: '18%' },
-      { key: 'grnType', label: 'GRN Type', width: '12%' },
+      {
+        key: 'invoicePeriodDays',
+        label: 'Period Days',
+        width: '10%',
+        render: (item) => item.invoicePeriodDays ?? 'N/A',
+      },
+      {
+        key: 'createdAt',
+        label: 'Created At',
+        width: '12%',
+        render: (item) => (item.createdAt ? new Date(item.createdAt).toLocaleString() : 'N/A'),
+      },
       {
         key: 'receivedDate',
         label: 'GRN Received On',
         width: '14%',
         render: (item) => (item.receivedDate ? new Date(item.receivedDate).toLocaleDateString() : 'N/A'),
       },
-      { key: 'receivedByUserId', label: 'Received By', width: '12%' },
+      { key: 'receivedByUserId', label: 'Received By', width: '12%', render: (item) => <UserEmailCell userId={item.receivedByUserId} /> },
+      {
+        key: 'confirmedAt',
+        label: 'Confirmed At',
+        width: '12%',
+        render: (item) => (item.confirmedAt ? new Date(item.confirmedAt).toLocaleString() : 'N/A'),
+      },
       {
         key: 'status',
         label: 'Status',
@@ -231,7 +340,7 @@ const ReceiveGRNPage = () => {
       purchaseOrderId: grn.purchaseOrderId || '',
       storeId: grn.storeId || '',
       vendorId: grn.vendorId || '',
-      grnType: grn.grnType || 'PURCHASE',
+      invoicePeriodDays: Number(grn.invoicePeriodDays ?? 30),
       itemId: '',
       quantityReceived: 1,
       conditionStatus: 'NEW'
@@ -241,30 +350,21 @@ const ReceiveGRNPage = () => {
   };
 
   const handleDelete = async (grnId, grnNumber) => {
-    // Open delete confirmation modal instead of window.confirm
-    setDeleteConfirm({ id: grnId, grnNumber });
-  };
-
-  const confirmDelete = () => {
-    if (!deleteConfirm) return;
-
-    const { id: grnId, grnNumber } = deleteConfirm;
-
     setDeleting(grnId);
-    deleteGRN(grnId)
-      .then(() => {
+  
+    return deleteGRN(grnId)
+      .then((response) => {
         toast.success(`Deleted ${grnNumber}`);
         queryClient.invalidateQueries(['grns']);
+        return response;
       })
-      .catch(() => toast.error('Failed to delete GRN'))
+      .catch((error) => {
+        toast.error('Failed to delete GRN');
+        throw error;
+      })
       .finally(() => {
-        setDeleteConfirm(null);
         setDeleting(null);
       });
-  };
-
-  const cancelDelete = () => {
-    setDeleteConfirm(null);
   };
 
   const handleApproveFromPreview = () => {
@@ -342,7 +442,7 @@ const ReceiveGRNPage = () => {
       purchaseOrderId: '',
       storeId: '',
       vendorId: '',
-      grnType: 'PURCHASE',
+      invoicePeriodDays: 30,
       itemId: '',
       quantityReceived: 1,
       conditionStatus: 'NEW'
@@ -353,12 +453,27 @@ const ReceiveGRNPage = () => {
     const po = purchaseOrders.find((order) => String(order.id ?? order.purchaseOrderId) === String(poId));
     setSelectedPO(po || null);
     if (po) {
+      const autoItems = (po.lines || []).map((line, index) => ({
+        id: line.id ?? `${po.id}-line-${index}`,
+        itemId: line.itemId,
+        itemName: line.itemName || line.name || `Item #${line.itemId}`,
+        sku: line.sku || '',
+        quantityReceived: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
+        quantityOrdered: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
+        unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+        conditionStatus: 'NEW',
+        poItemId: line.id ?? null,
+      }));
+
       setGrnFormData((prev) => ({
         ...prev,
-        poId: String(poId),
+        purchaseOrderId: String(poId),
         storeId: po.storeId ? String(po.storeId) : prev.storeId,
         vendorId: po.vendorId ? String(po.vendorId) : prev.vendorId,
       }));
+      setGrnItems(autoItems);
+    } else {
+      setGrnItems([]);
     }
   };
 
@@ -386,72 +501,81 @@ const ReceiveGRNPage = () => {
   };
 
   const handleAddItem = () => {
-    // Validation order: field checks first, then business logic
-    if (!grnFormData.purchaseOrderId) {
-      toast.error('Please select a purchase order first');
-      return;
-    }
-
     if (!grnFormData.itemId) {
       toast.error('Please select an item');
       return;
     }
 
-    if (!selectedPO) {
-      toast.error('PO details are still loading. Please wait...');
-      return;
-    }
-
-    if (!selectedPO.lines || selectedPO.lines.length === 0) {
-      toast.error('Selected PO has no items');
-      return;
-    }
-
-    const selectedItem = items.find(i => String(i.id) === String(grnFormData.itemId));
+    const selectedItem = items.find((i) => String(i.id) === String(grnFormData.itemId));
     if (!selectedItem) {
-      toast.error('Item not found in system');
+      toast.error('Selected item not found');
       return;
     }
 
-    // Find the PO item to get quantityOrdered and unitPrice
-    const poItem = selectedPO.lines.find(pi => String(pi.itemId) === String(grnFormData.itemId));
-    if (!poItem) {
-      console.error('[handleAddItem] PO item not found. Available items:', selectedPO.lines.map(i => i.itemId));
-      toast.error('This item is not in the selected purchase order');
-      return;
-    }
-
-    if (!poItem.quantityOrdered || poItem.quantityOrdered <= 0) {
-      toast.error('PO item has no quantity ordered');
-      return;
-    }
+    const poLine = (selectedPO?.lines || []).find((line) => String(line.itemId) === String(selectedItem.id));
+    const quantityOrdered = Math.max(1, Number(poLine?.quantityOrdered ?? poLine?.qty ?? poLine?.quantity ?? 1) || 1);
 
     const newItem = {
       id: Date.now(),
-      itemId: selectedItem.id ?? poItem.itemId,
-      itemName: selectedItem.name || poItem.itemName || poItem.name || `Item #${poItem.itemId}`,
-      sku: selectedItem.sku || poItem.sku || '',
-      quantityReceived: grnFormData.quantityReceived,
-      quantityOrdered: poItem.quantityOrdered,
-      unitPrice: Number(poItem.unitPrice ?? 0),
-      conditionStatus: grnFormData.conditionStatus,
-      poItemId: poItem.id
+      itemId: selectedItem.id,
+      itemName: selectedItem.name || selectedItem.itemName || `Item #${selectedItem.id}`,
+      sku: selectedItem.sku || selectedItem.itemSku || '',
+      quantityReceived: Math.max(1, Number(grnFormData.quantityReceived) || 1),
+      quantityOrdered,
+      unitPrice: Number(poLine?.unitPrice ?? poLine?.price ?? 0),
+      conditionStatus: 'NEW',
+      poItemId: poLine?.id ?? null,
     };
 
     setGrnItems((prev) => [...prev, newItem]);
-    setGrnFormData(prev => ({
+    setGrnFormData((prev) => ({
       ...prev,
       itemId: '',
       quantityReceived: 1,
-      conditionStatus: 'NEW'
     }));
-    toast.success('Item added to GRN');
   };
 
   const handleRemoveItem = (itemId) => {
     setGrnItems(grnItems.filter(item => item.id !== itemId));
     toast.success('Item removed from GRN');
   };
+
+  const handleTableItemSelectionChange = (rowId, selectedItemId) => {
+    const selectedItem = items.find((invItem) => String(invItem.id) === String(selectedItemId));
+    setGrnItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== rowId) return item;
+        const poLine = (selectedPO?.lines || []).find((line) => String(line.itemId) === String(selectedItemId));
+        return {
+          ...item,
+          itemId: selectedItem?.id ?? poLine?.itemId ?? item.itemId,
+          itemName: selectedItem?.name || selectedItem?.itemName || poLine?.itemName || poLine?.name || item.itemName,
+          sku: selectedItem?.sku || selectedItem?.itemSku || poLine?.sku || item.sku,
+          unitPrice: Number(poLine.unitPrice ?? poLine.price ?? item.unitPrice ?? 0),
+        };
+      })
+    );
+  };
+
+  const handleTableQtyChange = (rowId, value) => {
+    const parsed = Math.max(1, Number.parseInt(value, 10) || 1);
+    setGrnItems((prev) => prev.map((item) => (item.id === rowId ? { ...item, quantityReceived: parsed } : item)));
+  };
+
+  const handleTableUnitPriceResolved = (rowId, resolvedPrice) => {
+    setGrnItems((prev) =>
+      prev.map((item) => (item.id === rowId ? { ...item, unitPrice: Number(resolvedPrice || 0) } : item))
+    );
+  };
+
+  const getLineTotal = (item) => {
+    return (Number(item.quantityReceived) || 0) * (Number(item.unitPrice) || 0);
+  };
+
+  const totalItemsPrice = useMemo(
+    () => grnItems.reduce((sum, item) => sum + getLineTotal(item), 0),
+    [grnItems]
+  );
 
   const handleSubmitGRN = () => {
     if (!grnFormData.purchaseOrderId || grnItems.length === 0) {
@@ -461,6 +585,7 @@ const ReceiveGRNPage = () => {
     setSubmitting(true);
     const payload = {
       purchaseOrderId: Number(grnFormData.purchaseOrderId),
+      invoicePeriodDays: Number(grnFormData.invoicePeriodDays) || 30,
       lines: grnItems.map((item) => ({
         itemId: Number(item.itemId),
         qty: Math.max(1, Number.parseInt(item.quantityReceived, 10) || 1),
@@ -483,6 +608,15 @@ const ReceiveGRNPage = () => {
       })
       .finally(() => setSubmitting(false));
   };
+
+  const eligiblePurchaseOrders = useMemo(
+    () =>
+      purchaseOrders.filter((po) => {
+        const status = String(po.approvalStatus || po.status || '').toUpperCase();
+        return status === 'PENDING' || status === 'APPROVED';
+      }),
+    [purchaseOrders]
+  );
 
   return (
     <>
@@ -574,13 +708,13 @@ const ReceiveGRNPage = () => {
                     name="purchaseOrderId"
                     value={grnFormData.purchaseOrderId}
                     onChange={handleGrnFormChange}
-                    disabled={loadingPOs || purchaseOrders.length === 0}
+                    disabled={loadingPOs || eligiblePurchaseOrders.length === 0}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50 disabled:bg-gray-100"
                   >
                     <option value="">
-                      {loadingPOs ? 'Loading POs...' : purchaseOrders.length === 0 ? 'No POs available' : 'Select PO'}
+                      {loadingPOs ? 'Loading POs...' : eligiblePurchaseOrders.length === 0 ? 'No pending/approved POs available' : 'Select PO'}
                     </option>
-                    {purchaseOrders.map(po => (
+                    {eligiblePurchaseOrders.map(po => (
                       <option key={po.id} value={po.id}>
                         {po.poNo ? `${po.poNo}` : `PO #${po.id}`}
                       </option>
@@ -592,10 +726,10 @@ const ReceiveGRNPage = () => {
                       <span>Loading purchase orders...</span>
                     </div>
                   )}
-                  {!loadingPOs && purchaseOrders.length === 0 && (
+                  {!loadingPOs && eligiblePurchaseOrders.length === 0 && (
                     <div className="flex items-center gap-2 mt-2 text-red-600 text-sm">
                       <AlertCircle size={16} />
-                      <span>No purchase orders found</span>
+                      <span>No pending/approved purchase orders found</span>
                     </div>
                   )}
                 </div>
@@ -646,85 +780,55 @@ const ReceiveGRNPage = () => {
                 </div>
 
                 <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">GRN Type</label>
+                  <label className="text-gray-700 font-semibold text-sm block mb-2">Invoice Period (Days)</label>
                   <select
-                    name="grnType"
-                    value={grnFormData.grnType}
+                    name="invoicePeriodDays"
+                    value={grnFormData.invoicePeriodDays}
                     onChange={handleGrnFormChange}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
                   >
-                    <option value="PURCHASE">Purchase</option>
-                    <option value="TRANSFER">Transfer</option>
-                    <option value="RETURN">Return</option>
-                    <option value="ADJUSTMENT">Adjustment</option>
+                    <option value={7}>7</option>
+                    <option value={15}>15</option>
+                    <option value={30}>30</option>
+                    <option value={45}>45</option>
+                    <option value={60}>60</option>
                   </select>
                 </div>
+
               </div>
 
-              {/* Item Selection */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Add More Item */}
+              <div className="grid grid-cols-3 gap-4 items-end">
                 <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">Item *</label>
+                  <label className="text-gray-700 font-semibold text-sm block mb-2">Add Item</label>
                   <select
                     name="itemId"
                     value={grnFormData.itemId}
                     onChange={handleGrnFormChange}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
                   >
-                    <option value="">Select item</option>
-                    {(selectedPO?.lines || []).map((line) => (
-                      <option key={line.id} value={line.itemId}>
-                        {line.itemName} ({line.sku || `#${line.itemId}`})
+                    <option value="">Select Item</option>
+                    {items.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} ({item.sku || `#${item.id}`})
                       </option>
                     ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">Condition Status</label>
-                  <select
-                    name="conditionStatus"
-                    value={grnFormData.conditionStatus}
-                    onChange={handleGrnFormChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
-                  >
-                    <option value="NEW">New</option>
-                    <option value="GOOD">Good</option>
-                    <option value="DAMAGED">Damaged</option>
-                    <option value="DEFECTIVE">Defective</option>
-                  </select>
+                  <label className="text-gray-700 font-semibold text-sm block mb-2">Quantity</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={grnFormData.quantityReceived}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
                 </div>
-              </div>
-
-              {/* Quantity and Add Button */}
-              <div className="grid grid-cols-2 gap-4 items-end">
-                <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">Quantity Received *</label>
-                  <div className="flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-md p-2">
-                    <button
-                      onClick={() => handleQuantityChange(grnFormData.quantityReceived - 1)}
-                      className="text-gray-600 hover:text-gray-800 transition"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    <input
-                      type="number"
-                      value={grnFormData.quantityReceived}
-                      onChange={(e) => handleQuantityChange(e.target.value)}
-                      className="flex-1 bg-gray-100 text-center text-gray-700 focus:outline-none text-sm font-medium"
-                    />
-                    <button
-                      onClick={() => handleQuantityChange(grnFormData.quantityReceived + 1)}
-                      className="text-gray-600 hover:text-gray-800 transition"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
-                </div>
-
                 <button
+                  type="button"
                   onClick={handleAddItem}
-                  className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-6 rounded-md transition"
+                  className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-6 rounded-md transition h-[38px]"
                 >
                   Add Item
                 </button>
@@ -741,37 +845,42 @@ const ReceiveGRNPage = () => {
                         <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Item SKU</th>
                         <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Item Name</th>
                         <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Qty Received</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Condition</th>
+                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Unit Price</th>
+                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Line Total</th>
                         <th className="px-4 py-3 text-center text-gray-700 font-semibold text-sm">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {grnItems.length === 0 ? (
                         <tr>
-                          <td colSpan="6" className="text-center py-6 text-gray-500 text-sm">No items added yet</td>
+                          <td colSpan="7" className="text-center py-6 text-gray-500 text-sm">Select a purchase order to load items</td>
                         </tr>
                       ) : (
                         grnItems.map((item, index) => (
-                          <tr key={item.id} className="border-b hover:bg-gray-50 transition">
-                            <td className="px-4 py-3 text-gray-800 text-sm font-medium">{index + 1}</td>
-                            <td className="px-4 py-3 text-gray-700 text-sm">{item.sku}</td>
-                            <td className="px-4 py-3 text-gray-700 text-sm">{item.itemName}</td>
-                            <td className="px-4 py-3 text-gray-700 text-sm font-semibold">{item.quantityReceived}</td>
-                            <td className="px-4 py-3 text-gray-700 text-sm">{item.conditionStatus}</td>
-                            <td className="px-4 py-3 text-center">
-                              <button
-                                onClick={() => handleRemoveItem(item.id)}
-                                className="bg-red-500 hover:bg-red-600 text-white p-2 rounded transition inline-flex items-center justify-center"
-                                title="Delete"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </td>
-                          </tr>
+                          <GrnItemRow
+                            key={item.id}
+                            item={item}
+                            index={index}
+                            allItems={items}
+                            onItemChange={handleTableItemSelectionChange}
+                            onQtyChange={handleTableQtyChange}
+                            onPriceResolved={handleTableUnitPriceResolved}
+                            onRemove={handleRemoveItem}
+                            getLineTotal={getLineTotal}
+                          />
                         ))
                       )}
                     </tbody>
                   </table>
+                </div>
+                <div className="mt-4 max-w-sm ml-auto">
+                  <label className="text-gray-700 font-semibold text-sm block mb-2">Total Price (All Items)</label>
+                  <input
+                    type="text"
+                    value={totalItemsPrice.toFixed(2)}
+                    disabled
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-100 text-gray-700 text-sm font-semibold"
+                  />
                 </div>
               </div>
             </div>
@@ -797,39 +906,7 @@ const ReceiveGRNPage = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
-          <div className="bg-white rounded-lg p-6 shadow-xl max-w-sm w-full mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Delete</h3>
-            <p className="text-gray-600 mb-6">
-              Are you sure you want to delete GRN <strong>{deleteConfirm.grnNumber}</strong>? This action cannot be undone.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button 
-                onClick={cancelDelete} 
-                className="px-4 py-2 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmDelete} 
-                disabled={deleting === deleteConfirm.id}
-                className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
-              >
-                {deleting === deleteConfirm.id ? (
-                  <>
-                    <Loader size={16} className="animate-spin" />
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
       {/* GRN Preview Modal */}
       {previewGrn && (

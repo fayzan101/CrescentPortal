@@ -11,13 +11,12 @@ import SearchableSelect from '@/components/ui/SearchableSelect';
 import ValidationErrorModal from '@/components/components/ValidationErrorModal';
 import SuccessModal from '@/components/ui/SuccessModal';
 import { useOffices } from '@/hooks/office/useOffices';
-import { useDropdownItems } from '@/hooks/inventory/utility/useDropdownItems';
+import { useItems } from '@/hooks/inventory/items/useItems';
 import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
 import { usePurchaseRequests } from '@/hooks/inventory/purchase request/usePurchaseRequests';
 import { useCreatePurchaseRequest } from '@/hooks/inventory/purchase request/useCreatePurchaseRequest';
 import { useUpdatePurchaseRequest } from '@/hooks/inventory/purchase request/useUpdatePurchaseRequest';
 import { useDeletePurchaseRequest } from '@/hooks/inventory/purchase request/useDeletePurchaseRequest';
-import { useItemById } from '@/hooks/inventory/items/useItemById';
 import { purchaseRequestLineList, resolveItemRecordId, resolveItemUnitOfMeasurement } from '@/lib/inventoryItemMeta';
 
 function formatApiErrorMessage(error, fallback) {
@@ -49,11 +48,9 @@ function formatMoney(value) {
   return asNumber.toFixed(2);
 }
 
-const PurchaseRequestItemDetailRow = ({ item, index, showAction, onRemove }) => {
-  const itemRecordId = item.itemId ?? item.inventoryItemId ?? null;
-  const { data: itemByIdData, isLoading: isItemLoading } = useItemById(itemRecordId, { enabled: !!itemRecordId });
-
-  const itemDetails = useMemo(() => extractItemRecord(itemByIdData), [itemByIdData]);
+const PurchaseRequestItemDetailRow = ({ item, index, showAction, onRemove, itemLookup }) => {
+  const itemRecordId = String(item.itemId ?? item.inventoryItemId ?? '');
+  const itemDetails = itemLookup.get(itemRecordId);
 
   const unitPrice = itemDetails?.amount ?? itemDetails?.unitPrice ?? itemDetails?.price ?? item.unitPrice ?? null;
   const taxAmount = itemDetails?.taxAmount ?? item.taxAmount ?? null;
@@ -81,11 +78,11 @@ const PurchaseRequestItemDetailRow = ({ item, index, showAction, onRemove }) => 
       <td className="px-4 py-3 text-gray-700">{item.itemName || item.name || 'N/A'}</td>
       <td className="px-4 py-3 text-gray-700">{item.unitOfMeasurement || item.uom || 'N/A'}</td>
       <td className="px-4 py-3 text-gray-700">{item.quantity ?? item.qty ?? 'N/A'}</td>
-      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(unitPrice)}</td>
-      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(taxAmount)}</td>
-      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : formatMoney(computedTotal)}</td>
-      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : categoryName}</td>
-      <td className="px-4 py-3 text-gray-700">{isItemLoading ? 'Loading...' : subCategoryName}</td>
+      <td className="px-4 py-3 text-gray-700">{formatMoney(unitPrice)}</td>
+      <td className="px-4 py-3 text-gray-700">{formatMoney(taxAmount)}</td>
+      <td className="px-4 py-3 text-gray-700">{formatMoney(computedTotal)}</td>
+      <td className="px-4 py-3 text-gray-700">{categoryName}</td>
+      <td className="px-4 py-3 text-gray-700">{subCategoryName}</td>
       {showAction && (
         <td className="px-4 py-3 text-center">
           <button
@@ -159,7 +156,7 @@ const PurchaseRequestPage = () => {
   const requestsQuery = usePurchaseRequests();
   const officesQuery = useOffices(undefined, { enabled: true });
   const storesQuery = useDropdownStores();
-  const itemsQuery = useDropdownItems();
+  const itemsQuery = useItems();
 
   const offices = useMemo(
     () => normalizeList(officesQuery.data).map((office) => ({
@@ -189,7 +186,16 @@ const PurchaseRequestPage = () => {
     [stores]
   );
 
-  const items = useMemo(() => normalizeItems(itemsQuery.data), [itemsQuery.data]);
+  const items = useMemo(() => {
+    return normalizeItems(itemsQuery.data).map((item) => {
+      const details = extractItemRecord(item) || item;
+      return {
+        ...item,
+        ...details,
+        id: resolveItemRecordId(details) || item.id,
+      };
+    });
+  }, [itemsQuery.data]);
 
   const findItemById = (rawId) =>
     items.find((item) => String(item.id) === String(rawId ?? ''));
@@ -245,12 +251,34 @@ const PurchaseRequestPage = () => {
     });
   }, [itemLookup, requestsQuery.data]);
 
+  const calculateRequestTotalAmount = (requestItems = []) => {
+    return requestItems.reduce((sum, line) => {
+      const itemDetails = itemLookup.get(String(line.itemId ?? line.inventoryItemId ?? ''));
+      const unitPrice = itemDetails?.amount ?? itemDetails?.unitPrice ?? itemDetails?.price ?? line.unitPrice ?? 0;
+      const taxAmount = itemDetails?.taxAmount ?? line.taxAmount ?? 0;
+      const totalAmount =
+        itemDetails?.totalAmount ??
+        line.totalAmount ??
+        (Number.isFinite(Number(unitPrice)) && Number.isFinite(Number(taxAmount))
+          ? Number(unitPrice) + Number(taxAmount)
+          : Number(unitPrice) || 0);
+
+      const asNumber = Number(totalAmount);
+      return sum + (Number.isFinite(asNumber) ? asNumber : 0);
+    }, 0);
+  };
+
   const tableColumns = [
     { key: 'requestNo', label: 'PR #', width: '16%' },
     { key: 'officeId', label: 'Office ID', width: '14%', render: (item) => item.officeId ?? 'N/A' },
     { key: 'storeName', label: 'Store', width: '18%', render: (item) => item.storeName || 'N/A' },
     { key: 'userId', label: 'Requested By', width: '14%', render: (item) => item.userId || 'N/A' },
-    { key: 'lineCount', label: 'Lines', width: '8%', render: (item) => item.lineCount ?? 0 },
+    {
+      key: 'totalAmount',
+      label: 'Total Amount',
+      width: '12%',
+      render: (item) => formatMoney(calculateRequestTotalAmount(item.items || []))
+    },
     {
       key: 'createdAt',
       label: 'Created At',
@@ -622,6 +650,7 @@ const PurchaseRequestPage = () => {
                             index={index}
                             showAction
                             onRemove={handleRemoveItem}
+                            itemLookup={itemLookup}
                           />
                         ))}
                       </tbody>
@@ -705,6 +734,7 @@ const PurchaseRequestPage = () => {
                             item={item}
                             index={idx}
                             showAction={false}
+                            itemLookup={itemLookup}
                           />
                         ))}
                       </tbody>

@@ -77,3 +77,19 @@ export const rejectPurchaseOrder = async (id, reason) => {
     throw error;
   }
 };
+
+// Download a purchase order PDF by ID
+export const downloadPurchaseOrderPdf = async (id) => {
+  if (!id) throw new Error("Purchase order ID is required");
+  try {
+    const response = await userRequest.get(`/api/v1/purchase-orders/${id}/pdf`, {
+      responseType: "blob",
+      headers: {
+        Accept: "application/pdf",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};

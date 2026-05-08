@@ -1,28 +1,60 @@
 "use client";
 
 import React, { useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { Plus, X, Loader } from 'lucide-react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { Plus, X, Loader, Download } from 'lucide-react';
 import DataTable from '../../components/DataTable';
 import FieldWrapper from '../../ui/FieldWrapper';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import { useOffices } from '@/hooks/office/useOffices';
 import { useDropdownItems } from '@/hooks/inventory/utility/useDropdownItems';
+import { useItems } from '@/hooks/inventory/items/useItems';
 import { useDropdownVendors } from '@/hooks/inventory/utility/useDropdownVendors';
 import { usePurchaseOrders } from '@/hooks/inventory/purchase orders/usePurchaseOrders';
 import { useCreatePurchaseOrder } from '@/hooks/inventory/purchase orders/useCreatePurchaseOrder';
 import { useDeletePurchaseOrder } from '@/hooks/inventory/purchase orders/useDeletePurchaseOrder';
 import { useApprovePurchaseOrder } from '@/hooks/inventory/purchase orders/useApprovePurchaseOrder';
 import { useRejectPurchaseOrder } from '@/hooks/inventory/purchase orders/useRejectPurchaseOrder';
+import { useDownloadPurchaseOrderPdf } from '@/hooks/inventory/purchase orders/useDownloadPurchaseOrderPdf';
 import { useApprovePurchaseRequest } from '@/hooks/inventory/purchase request/useApprovePurchaseRequest';
 import { useRejectPurchaseRequest } from '@/hooks/inventory/purchase request/useRejectPurchaseRequest';
 import { usePurchaseRequests } from '@/hooks/inventory/purchase request/usePurchaseRequests';
+import { getPurchaseRequestById } from '@/services/inventory.pr.service';
 import {
     resolveItemRecordId,
     resolveItemUnitOfMeasurement,
     purchaseRequestLineList,
 } from '@/lib/inventoryItemMeta';
+
+function formatMoney(value) {
+    if (value === undefined || value === null || value === '') return 'N/A';
+    const asNumber = Number(value);
+    if (!Number.isFinite(asNumber)) return String(value);
+    return asNumber.toFixed(2);
+}
+
+function extractItemRecord(payload) {
+    if (Array.isArray(payload)) return payload[0] || null;
+    if (!payload || typeof payload !== 'object') return null;
+    const preferredKeys = ['data', 'item', 'result', 'details'];
+    for (const key of preferredKeys) {
+        const candidate = payload[key];
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+    }
+    return payload;
+}
+
+function extractPurchaseRequestRecord(payload) {
+    if (Array.isArray(payload)) return payload[0] || null;
+    if (!payload || typeof payload !== 'object') return null;
+    const preferredKeys = ['data', 'purchaseRequest', 'item', 'result', 'details'];
+    for (const key of preferredKeys) {
+        const candidate = payload[key];
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+    }
+    return payload;
+}
 
 function toDatetimeLocalValue(iso) {
     if (!iso) return '';
@@ -91,6 +123,7 @@ const PurchaseOrderPage = () => {
     const purchaseRequestsQuery = usePurchaseRequests();
     const officesQuery = useOffices(undefined, { enabled: true });
     const itemsQuery = useDropdownItems();
+    const inventoryItemsQuery = useItems();
     const vendorsQuery = useDropdownVendors();
 
     const offices = useMemo(() => {
@@ -116,6 +149,38 @@ const PurchaseOrderPage = () => {
         }));
     }, [itemsQuery.data]);
 
+    const inventoryItems = useMemo(() => {
+        return normalizeList(inventoryItemsQuery.data).map((item) => {
+            const details = extractItemRecord(item) || item;
+            return {
+                ...details,
+                id: resolveItemRecordId(details) || resolveItemRecordId(item),
+                name: details.name || details.itemName || details.label || '',
+                sku: details.sku || details.itemSku || '',
+                unitOfMeasurement: resolveItemUnitOfMeasurement(details) || resolveItemUnitOfMeasurement(item),
+                unitPrice: details.amount ?? details.unitPrice ?? details.price ?? 0,
+                taxAmount: details.taxAmount ?? 0,
+                totalAmount: details.totalAmount ?? null,
+                categoryName:
+                    details?.category?.categoryName ||
+                    details?.category?.name ||
+                    details?.categoryName ||
+                    '',
+                subCategoryName:
+                    details?.subCategory?.subCategoryName ||
+                    details?.subCategory?.name ||
+                    details?.subCategoryName ||
+                    '',
+            };
+        });
+    }, [inventoryItemsQuery.data]);
+
+    const inventoryItemLookup = useMemo(() => {
+        const map = new Map();
+        inventoryItems.forEach((item) => map.set(String(item.id), item));
+        return map;
+    }, [inventoryItems]);
+
     const itemOptions = useMemo(
         () => normalizedItems.map((item) => ({ value: String(item.id), label: item.sku ? `${item.sku} - ${item.name}` : item.name })),
         [normalizedItems]
@@ -134,11 +199,58 @@ const PurchaseOrderPage = () => {
         [normalizedVendors]
     );
 
+    const rawPurchaseOrders = useMemo(
+        () => normalizeList(purchaseOrdersQuery.data),
+        [purchaseOrdersQuery.data]
+    );
+
+    const purchaseRequestIdsForOrders = useMemo(() => {
+        const ids = new Set();
+        rawPurchaseOrders.forEach((order) => {
+            const prId = order.purchaseRequestId ?? order.purchaseRequest?.id ?? order.prId ?? null;
+            if (prId !== null && prId !== undefined && prId !== '') {
+                ids.add(String(prId));
+            }
+        });
+        return Array.from(ids);
+    }, [rawPurchaseOrders]);
+
+    const purchaseRequestDetailsQueries = useQueries({
+        queries: purchaseRequestIdsForOrders.map((id) => ({
+            queryKey: ['purchase-request', id],
+            queryFn: () => getPurchaseRequestById(id),
+            enabled: !!id,
+        })),
+    });
+
+    const purchaseRequestOfficeById = useMemo(() => {
+        const map = new Map();
+        purchaseRequestDetailsQueries.forEach((queryResult, index) => {
+            if (!queryResult?.data) return;
+            const prId = purchaseRequestIdsForOrders[index];
+            const request = extractPurchaseRequestRecord(queryResult.data);
+            if (!request) return;
+            map.set(String(prId), {
+                officeId: request.officeId ?? request.office?.id ?? request.office?.officeId ?? '',
+                officeName: request.officeName || request.office?.branchName || request.branchName || '',
+            });
+        });
+        return map;
+    }, [purchaseRequestDetailsQueries, purchaseRequestIdsForOrders]);
+
     const normalizedOrders = useMemo(() => {
-        return normalizeList(purchaseOrdersQuery.data).map((order) => ({
+        return rawPurchaseOrders.map((order) => {
+            const purchaseRequestId = order.purchaseRequestId ?? order.purchaseRequest?.id ?? order.prId ?? null;
+            const prOffice = purchaseRequestOfficeById.get(String(purchaseRequestId ?? ''));
+            const resolvedOfficeId = prOffice?.officeId ?? '';
+            return ({
             ...order,
             id: order.purchaseOrderId ?? order.id ?? order._id,
-            officeId: order.officeId ?? order.office?.officeId ?? order.office?.id ?? '',
+            officeId: resolvedOfficeId,
+            officeName:
+                prOffice?.officeName ||
+                offices.find((office) => String(office.id) === String(resolvedOfficeId))?.branchName ||
+                'N/A',
             storeId: order.storeId ?? order.store?.storeId ?? order.store?.id ?? '',
             storeName: order.storeName || order.store?.storeName || order.store?.name || '',
             vendorId: order.vendorId ?? order.vendor?.vendorId ?? order.vendor?.id ?? '',
@@ -151,8 +263,9 @@ const PurchaseOrderPage = () => {
             createdOn: order.createdOn || order.createdAt || order.date || '',
             approvalStatus: String(order.approvalStatus || order.status || 'DRAFT').toUpperCase(),
             deliveryStatus: String(order.deliveryStatus || order.delivery_state || 'PENDING').toUpperCase(),
-        }));
-    }, [purchaseOrdersQuery.data]);
+            });
+        });
+    }, [offices, purchaseRequestOfficeById, rawPurchaseOrders]);
 
     const normalizedPurchaseRequests = useMemo(() => {
         return normalizeList(purchaseRequestsQuery.data).map((request) => {
@@ -274,6 +387,11 @@ const PurchaseOrderPage = () => {
             setSubmitError(error?.response?.data?.message || error?.message || 'Failed to reject purchase order.');
         },
     });
+    const { mutateAsync: downloadPurchaseOrderPdf, isPending: isDownloadingPoPdf } = useDownloadPurchaseOrderPdf({
+        onError: (error) => {
+            setSubmitError(error?.response?.data?.message || error?.message || 'Failed to download purchase order PDF.');
+        },
+    });
 
     const { mutate: approvePurchaseRequest, mutateAsync: approvePurchaseRequestAsync } = useApprovePurchaseRequest({
         onSuccess: async () => {
@@ -323,13 +441,26 @@ const PurchaseOrderPage = () => {
         );
     }, [normalizedOrders, searchTerm]);
 
+    const calculateTotalAmount = (lines = []) => {
+        return lines.reduce((sum, line) => {
+            const meta = getLineDisplayMeta(line);
+            const asNumber = Number(meta.totalAmount);
+            return sum + (Number.isFinite(asNumber) ? asNumber : 0);
+        }, 0);
+    };
+
     const tableColumns = [
         { key: 'purchaseOrderNo', label: 'PO #', width: '14%' },
         { key: 'purchasedRequestNo', label: 'PR #', width: '14%' },
-        { key: 'officeId', label: 'Office ID', width: '12%', render: (item) => item.officeId ?? 'N/A' },
+        { key: 'officeName', label: 'Office', width: '12%', render: (item) => item.officeName || 'N/A' },
         { key: 'storeName', label: 'Store', width: '16%', render: (item) => item.storeName || 'N/A' },
         { key: 'vendorName', label: 'Vendor', width: '16%', render: (item) => item.vendorName || 'N/A' },
-        { key: 'lineCount', label: 'Lines', width: '8%', render: (item) => item.lineCount ?? 0 },
+        {
+            key: 'totalAmount',
+            label: 'Total Amount',
+            width: '10%',
+            render: (item) => formatMoney(calculateTotalAmount(item.lines || [])),
+        },
         { key: 'createdOn', label: 'Created At', width: '16%', render: (item) => item.createdOn ? new Date(item.createdOn).toLocaleString() : 'N/A' },
         {
             key: 'approvalStatus',
@@ -602,6 +733,70 @@ const PurchaseOrderPage = () => {
         rejectPurchaseOrder({ id, reason: poRejectReason.trim() });
     };
 
+    const getLineDisplayMeta = (line) => {
+        const lineItemId = String(line?.itemId ?? line?.id ?? line?.inventoryItemId ?? '');
+        const itemMeta = inventoryItemLookup.get(lineItemId);
+        const unitPrice = itemMeta?.unitPrice ?? line?.unitPrice ?? null;
+        const taxAmount = itemMeta?.taxAmount ?? line?.taxAmount ?? null;
+        const totalAmount =
+            itemMeta?.totalAmount ??
+            line?.totalAmount ??
+            (Number.isFinite(Number(unitPrice)) && Number.isFinite(Number(taxAmount))
+                ? Number(unitPrice) + Number(taxAmount)
+                : null);
+        return {
+            itemSku: line?.itemSku || line?.sku || itemMeta?.sku || 'N/A',
+            itemName: line?.itemName || line?.name || itemMeta?.name || `Item #${lineItemId || 'N/A'}`,
+            unitOfMeasurement: resolveItemUnitOfMeasurement(line) || itemMeta?.unitOfMeasurement || 'N/A',
+            categoryName: itemMeta?.categoryName || 'N/A',
+            subCategoryName: itemMeta?.subCategoryName || 'N/A',
+            unitPrice: formatMoney(unitPrice),
+            taxAmount: formatMoney(taxAmount),
+            totalAmount: formatMoney(totalAmount),
+        };
+    };
+
+    const handleDownloadPOPdf = async () => {
+        const id = previewPO?.id;
+        if (!id) return;
+
+        setSubmitError('');
+        try {
+            const pdfBlob = await downloadPurchaseOrderPdf(id);
+            const fileName = `${previewPO?.purchaseOrderNo || `PO-${id}`}.pdf`;
+            const downloadUrl = window.URL.createObjectURL(pdfBlob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (_) {
+            // Error message is handled in mutation onError.
+        }
+    };
+
+    const handleDownloadPOFromRow = async (order) => {
+        const id = order?.id;
+        if (!id || order?.approvalStatus !== 'APPROVED') return;
+        setSubmitError('');
+        try {
+            const pdfBlob = await downloadPurchaseOrderPdf(id);
+            const fileName = `${order?.purchaseOrderNo || `PO-${id}`}.pdf`;
+            const downloadUrl = window.URL.createObjectURL(pdfBlob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (_) {
+            // Error message is handled in mutation onError.
+        }
+    };
+
     return (
         <div className="bg-white p-8 min-h-screen scrollbar-hide m-5 rounded-lg">
             <div className="flex justify-between items-center mb-8">
@@ -635,6 +830,20 @@ const PurchaseOrderPage = () => {
                     onSearchChange={setSearchTerm}
                     onView={(item) => setPreviewPO(item)}
                     onDelete={handleDelete}
+                    rowActions={(item) => {
+                        const isApproved = item?.approvalStatus === 'APPROVED';
+                        return (
+                            <button
+                                type="button"
+                                onClick={() => handleDownloadPOFromRow(item)}
+                                disabled={!isApproved || isDownloadingPoPdf}
+                                title={isApproved ? 'Download PDF' : 'Only approved PO can be downloaded'}
+                                className="rounded-lg border border-green-600 px-3 py-2 text-green-700 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 disabled:hover:bg-transparent cursor-pointer"
+                            >
+                                <Download className="w-4 h-4" />
+                            </button>
+                        );
+                    }}
                     tabName="Purchase Order"
                 />
             </div>
@@ -867,29 +1076,40 @@ const PurchaseOrderPage = () => {
                                                 <tr className="bg-gray-50 border-b border-gray-200">
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">S.No.</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item ID</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item SKU</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item Name</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">UOM</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Qty</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Unit Price</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Tax Amount</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Total</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Category</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Sub Category</th>
                                                     <th className="py-3 px-4 text-center text-sm font-semibold text-gray-700">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {formData.poItems.map((item, index) => (
+                                                {formData.poItems.map((item, index) => {
+                                                    const meta = getLineDisplayMeta(item);
+                                                    return (
                                                     <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
                                                         <td className="py-3 px-4 text-sm text-gray-700">{index + 1}</td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{item.itemId || 'N/A'}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.itemName || 'N/A'}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.unitOfMeasurement || item.uom || 'N/A'}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.itemSku}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.itemName}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.unitOfMeasurement}</td>
                                                         <td className="py-3 px-4 text-sm font-semibold text-gray-700">{item.quantityOrdered}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.unitPrice}</td>
-                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-700">{item.totalPrice}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.unitPrice}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.taxAmount}</td>
+                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-700">{meta.totalAmount}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.categoryName}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.subCategoryName}</td>
                                                         <td className="py-3 px-4 text-center">
                                                             <button onClick={() => handleRemoveItem(item.id)} className="text-red-500 hover:text-red-700 font-bold text-base">✕</button>
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -951,7 +1171,7 @@ const PurchaseOrderPage = () => {
                         <div className="flex-1 overflow-y-auto px-6 py-6">
                             <div className="grid grid-cols-2 gap-4">
                                 {[
-                                    ['Office ID', previewPO.officeId || 'N/A'],
+                                    ['Office', previewPO.officeName || 'N/A'],
                                     ['Store', previewPO.storeName || 'N/A'],
                                     ['Vendor', previewPO.vendorName || 'N/A'],
                                     ['User', previewPO.userId],
@@ -976,16 +1196,35 @@ const PurchaseOrderPage = () => {
                                             <thead>
                                                 <tr className="bg-gray-50 border-b border-gray-200">
                                                     <th className="py-2 px-3 text-left font-semibold text-gray-700">Item ID</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Item SKU</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Item Name</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">UOM</th>
                                                     <th className="py-2 px-3 text-left font-semibold text-gray-700">Qty</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Unit Price</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Tax Amount</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Total Amount</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Category</th>
+                                                    <th className="py-2 px-3 text-left font-semibold text-gray-700">Sub Category</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {previewPO.lines.map((line, idx) => (
+                                                {previewPO.lines.map((line, idx) => {
+                                                    const meta = getLineDisplayMeta(line);
+                                                    return (
                                                     <tr key={line.id ?? line.purchaseOrderLineId ?? `po-line-${idx}`} className="border-b border-gray-200">
                                                         <td className="py-2 px-3 text-gray-700">{line.itemId ?? 'N/A'}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.itemSku}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.itemName}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.unitOfMeasurement}</td>
                                                         <td className="py-2 px-3 text-gray-700">{line.qty ?? line.quantity ?? 'N/A'}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.unitPrice}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.taxAmount}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.totalAmount}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.categoryName}</td>
+                                                        <td className="py-2 px-3 text-gray-700">{meta.subCategoryName}</td>
                                                     </tr>
-                                                ))}
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -994,7 +1233,17 @@ const PurchaseOrderPage = () => {
                         </div>
 
                         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-white shrink-0">
-                            
+                            {previewPO.approvalStatus === 'APPROVED' && (
+                                <button
+                                    onClick={handleDownloadPOPdf}
+                                    disabled={isDownloadingPoPdf}
+                                    className="cursor-pointer w-44 py-2.5 px-4 border border-green-600 text-green-700 hover:bg-green-50 duration-100 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                                >
+                                    {isDownloadingPoPdf ? <Loader size={16} className="animate-spin" /> : <Download size={26} />}
+                                    {isDownloadingPoPdf ? 'Downloading...' : 'Download PDF'}
+                                </button>
+                            )}
+                            {previewPO.approvalStatus === 'PENDING' && (<>
                                 <Input
                                     value={poRejectReason}
                                     onChange={(e) => setPoRejectReason(e.target.value)}
@@ -1013,13 +1262,14 @@ const PurchaseOrderPage = () => {
                                     onClick={handleApprovePO}
                                     disabled={poActionPendingId === previewPO.id || previewPO.approvalStatus === 'APPROVED' || previewPO.approvalStatus === 'REJECTED'}
                                     className="cursor-pointer w-40 py-3.5 bg-green-600 hover:bg-green-900 duration-100 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
+                                    >
                                     {poActionPendingId === previewPO.id ? 'Processing...' : 'Approve'}
                                 </button>
+                                </>)}
                             <button
                                 onClick={() => setPreviewPO(null)}
                                 className="w-40 py-3.5 bg-customBlue text-white hover:bg-customBlue/90 rounded-lg text-sm font-medium transition cursor-pointer"
-                            >
+                                >
                                 Close
                             </button>
                         </div>
