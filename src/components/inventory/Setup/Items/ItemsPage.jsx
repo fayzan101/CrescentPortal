@@ -9,6 +9,7 @@ import Input from '../../../ui/Input';
 import Select from '../../../ui/Select';
 import Textarea from '../../../ui/TextArea';
 import EditModal from '@/components/components/EditModal';
+import ValidationErrorModal from '@/components/components/ValidationErrorModal';
 import { useItems } from '@/hooks/inventory/items/useItems';
 import { useWorkflowSummary } from '@/hooks/inventory/items/useWorkflowSummary';
 import { useCreateItem } from '@/hooks/inventory/items/useCreateItem';
@@ -17,6 +18,10 @@ import { useDeleteItem } from '@/hooks/inventory/items/useDeleteItem';
 import { useCategories } from '@/hooks/inventory/setup/useCategories';
 import { useSubCategories } from '@/hooks/inventory/setup/useSubCategories';
 import { useGroups } from '@/hooks/inventory/setup/useGroups';
+import {
+    formatInventoryItemValidationErrors,
+    validateInventoryItemForm,
+} from '@/lib/validateInventoryItem';
 
 // Units object - easily extensible for future additions
 const UNITS = {
@@ -64,6 +69,9 @@ const ItemsPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [submitError, setSubmitError] = useState(null);
+    const [formFieldErrors, setFormFieldErrors] = useState({});
+    const [validationErrors, setValidationErrors] = useState([]);
+    const [showValidationModal, setShowValidationModal] = useState(false);
 
     // Edit modal state
     const [showEditModal, setShowEditModal] = useState(false);
@@ -270,7 +278,7 @@ const ItemsPage = () => {
         [editSubcategories]
     );
 
-    const normalizeSkuInput = (value) => value.toUpperCase().replace(/[^A-Z0-9-_]/g, '').slice(0, 30);
+    const normalizeSkuInput = (value) => value.toUpperCase().replace(/[^A-Z0-9-_]/g, '').slice(0, 64);
     const normalizeNameInput = (value) => value.replace(/\s+/g, ' ').trim();
     const normalizeAmountInput = (value) => {
         const sanitized = value.replace(/[^0-9.]/g, '');
@@ -374,10 +382,39 @@ const ItemsPage = () => {
         setShowAddModal(false);
         setFormData(emptyForm);
         setSubmitError(null);
+        setFormFieldErrors({});
+        setValidationErrors([]);
+        setShowValidationModal(false);
+    };
+
+    const runAddFormValidation = (data) => {
+        const validation = validateInventoryItemForm(
+            {
+                ...data,
+                uom: String(data.uom ?? '').trim().toUpperCase(),
+            },
+            { requirePricing: true, requireExpiry: true },
+        );
+        setFormFieldErrors(validation.fieldErrors);
+        if (!validation.valid) {
+            const formatted = formatInventoryItemValidationErrors(validation.fieldErrors);
+            setValidationErrors(formatted);
+            setShowValidationModal(true);
+            setSubmitError(formatted[0] || 'Please fix the highlighted fields.');
+        }
+        return validation;
     };
 
     const handleFormChange = (e) => {
         const { name, value } = e.target;
+        if (formFieldErrors[name]) {
+            setFormFieldErrors((prev) => {
+                const next = { ...prev };
+                delete next[name];
+                return next;
+            });
+        }
+        if (submitError) setSubmitError(null);
         if (name === 'reorderLevel') {
             const safeValue = value === '' ? '' : String(Math.max(0, Number(value) || 0));
             setFormData(prev => ({ ...prev, [name]: safeValue }));
@@ -404,30 +441,20 @@ const ItemsPage = () => {
     const handleSubmitForm = async () => {
         const normalizedName = normalizeNameInput(formData.itemName);
         const normalizedSku = normalizeSkuInput(formData.sku);
-        const skuPattern = /^[A-Z0-9][A-Z0-9-_]{2,29}$/;
+        const validation = runAddFormValidation({
+            ...formData,
+            itemName: normalizedName,
+            sku: normalizedSku,
+        });
+        if (!validation.valid) return;
 
-        if (!normalizedName) {
-            setSubmitError('Item name is required.');
-            return;
-        }
-        if (!skuPattern.test(normalizedSku)) {
-            setSubmitError('SKU must be 3-30 characters using letters, numbers, dash, or underscore.');
-            return;
-        }
-        if (!formData.categoryId) {
-            setSubmitError('Category is required.');
-            return;
-        }
-        if (!formData.uom) {
-            setSubmitError('UOM is required.');
-            return;
-        }
         setSubmitError(null);
         createItem(
             buildItemPayload({
                 ...formData,
                 itemName: normalizedName,
                 sku: normalizedSku,
+                uom: String(formData.uom ?? '').trim().toUpperCase(),
             }),
             {
             onSuccess: () => {
@@ -476,8 +503,29 @@ const ItemsPage = () => {
     const workflowData = workflowQuery.data ? (Array.isArray(workflowQuery.data) ? workflowQuery.data[0] : workflowQuery.data) : null;
 
     const handleUpdateItem = (onSuccess) => {
-        if (!editName.trim() || !editSku.trim() || !editCategoryId || !editUom.trim()) {
-            setUpdateError('Item Name, SKU, Category and UOM are required.');
+        const validation = validateInventoryItemForm(
+            {
+                itemName: editName,
+                sku: editSku,
+                categoryId: editCategoryId,
+                subCategoryId: editSubCategoryId,
+                groupId: editGroupId,
+                uom: editUom,
+                ssnSidn: editSsnSidn,
+                reorderLevel: editReorderLevel,
+                expiryDate: editExpiryDate,
+                amount: editAmount,
+                taxAmount: editTaxAmount,
+                totalAmount: editTotalAmount,
+                description: editDescription,
+            },
+            { requirePricing: true, requireExpiry: true },
+        );
+        if (!validation.valid) {
+            const formatted = formatInventoryItemValidationErrors(validation.fieldErrors);
+            setValidationErrors(formatted);
+            setShowValidationModal(true);
+            setUpdateError(formatted[0] || 'Please fix the highlighted fields.');
             return;
         }
         setUpdateError(null);
@@ -485,12 +533,12 @@ const ItemsPage = () => {
             {
                 id: selectedItem.id,
                 data: buildItemPayload({
-                    itemName: editName,
-                    sku: editSku,
+                    itemName: normalizeNameInput(editName),
+                    sku: normalizeSkuInput(editSku),
                     categoryId: editCategoryId,
                     subCategoryId: editSubCategoryId,
                     groupId: editGroupId,
-                    uom: editUom,
+                    uom: String(editUom ?? '').trim().toUpperCase(),
                     ssnSidn: editSsnSidn,
                     reorderLevel: editReorderLevel,
                     expiryDate: editExpiryDate,
@@ -604,13 +652,13 @@ const ItemsPage = () => {
                         <div className="flex-1 overflow-y-auto px-6 py-6">
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                 {/* Row 1: Item Name, Item Expiry, UOM */}
-                                <FieldWrapper label="Item Name" className="text-xs" required={true}>
+                                <FieldWrapper label="Item Name" className="text-xs" required={true} error={formFieldErrors.itemName}>
                                     <Input name="itemName" value={formData.itemName} onChange={handleFormChange} placeholder="Enter item name" className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="Item Expiry" className="text-xs" required={true}>
+                                <FieldWrapper label="Item Expiry" className="text-xs" required={true} error={formFieldErrors.expiryDate}>
                                     <Input type="date" name="expiryDate" value={formData.expiryDate} onChange={handleFormChange} className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="UOM" className="text-xs" required={true}>
+                                <FieldWrapper label="UOM" className="text-xs" required={true} error={formFieldErrors.uom}>
                                     <Select
                                         name="uom"
                                         value={formData.uom}
@@ -622,28 +670,31 @@ const ItemsPage = () => {
                                 </FieldWrapper>
 
                                 {/* Row 2: SKU / IMEI, SSN/SIDN, Reorder Level */}
-                                <FieldWrapper label="SKU / IMEI" className="text-xs" required={true}>
+                                <FieldWrapper label="SKU / IMEI" className="text-xs" required={true} error={formFieldErrors.sku}>
                                     <Input name="sku" value={formData.sku} onChange={handleFormChange} placeholder="Enter SKU / IMEI" className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="SSN/SIDN" className="text-xs">
+                                <FieldWrapper label="SSN/SIDN" className="text-xs" error={formFieldErrors.ssnSidn}>
                                     <Input name="ssnSidn" value={formData.ssnSidn} onChange={handleFormChange} placeholder="Enter SSN/SIDN" className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="Reorder Level" className="text-xs" required={true}>
+                                <FieldWrapper label="Reorder Level" className="text-xs" required={true} error={formFieldErrors.reorderLevel}>
                                     <Input type="number" min="0" name="reorderLevel" value={formData.reorderLevel} onChange={handleFormChange} placeholder="0" className="text-sm" />
                                 </FieldWrapper>
 
                                 {/* Row 3: Category, Subcategory, Group */}
-                                <FieldWrapper label="Category" className="text-xs" required={true}>
+                                <FieldWrapper label="Category" className="text-xs" required={true} error={formFieldErrors.categoryId}>
                                     <Select
                                         name="categoryId"
                                         value={formData.categoryId}
-                                        onChange={handleFormChange}
+                                        onChange={(e) => {
+                                            handleFormChange(e);
+                                            setFormData((prev) => ({ ...prev, subCategoryId: '' }));
+                                        }}
                                         options={categoryOptions}
                                         placeholder="Select category"
                                         className="text-sm"
                                     />
                                 </FieldWrapper>
-                                <FieldWrapper label="Subcategory" className="text-xs">
+                                <FieldWrapper label="Subcategory" className="text-xs" error={formFieldErrors.subCategoryId}>
                                     <Select
                                         name="subCategoryId"
                                         value={formData.subCategoryId}
@@ -653,7 +704,7 @@ const ItemsPage = () => {
                                         className="text-sm"
                                     />
                                 </FieldWrapper>
-                                <FieldWrapper label="Item Group" className="text-xs" required={true}>
+                                <FieldWrapper label="Item Group" className="text-xs" required={true} error={formFieldErrors.groupId}>
                                     <Select
                                         name="groupId"
                                         value={formData.groupId}
@@ -665,19 +716,19 @@ const ItemsPage = () => {
                                 </FieldWrapper>
 
                                 {/* Row 4: Amount, Tax Amount, Total Amount */}
-                                <FieldWrapper label="Amount" className="text-xs" required={true}>
+                                <FieldWrapper label="Amount" className="text-xs" required={true} error={formFieldErrors.amount}>
                                     <Input type="text" name="amount" value={formData.amount} onChange={handleFormChange} placeholder="0.00" className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="Tax Amount" className="text-xs" required={true}>
+                                <FieldWrapper label="Tax Amount" className="text-xs" required={true} error={formFieldErrors.taxAmount}>
                                     <Input type="text" name="taxAmount" value={formData.taxAmount} onChange={handleFormChange} placeholder="0.00" className="text-sm" />
                                 </FieldWrapper>
-                                <FieldWrapper label="Total Amount" className="text-xs">
+                                <FieldWrapper label="Total Amount" className="text-xs" error={formFieldErrors.totalAmount}>
                                     <Input type="text" name="totalAmount" value={formData.totalAmount} onChange={handleFormChange} placeholder="0.00" className="text-sm" readOnly={true} />
                                 </FieldWrapper>
 
                                 {/* Description - Full Width */}
                                 <div className="lg:col-span-3">
-                                    <FieldWrapper label="Description" className="text-xs">
+                                    <FieldWrapper label="Description" className="text-xs" error={formFieldErrors.description}>
                                         <Textarea
                                             name="description"
                                             value={formData.description}
@@ -714,6 +765,12 @@ const ItemsPage = () => {
                     </div>
                 </div>
             )}
+
+            <ValidationErrorModal
+                isOpen={showValidationModal}
+                onClose={() => setShowValidationModal(false)}
+                missingFields={validationErrors}
+            />
 
             {/* Edit Modal */}
             <EditModal
