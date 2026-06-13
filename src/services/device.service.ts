@@ -39,7 +39,9 @@ import { userRequest } from '@/lib/RequestMethods';
 const DEVICES_API_URL = '/api/v1/devices';
 
 export interface Device {
+	deviceId?: number;
 	deviceName: string;
+	imei?: string | null;
 	isActive: boolean;
 }
 

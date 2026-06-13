@@ -1,10 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getSaleById } from '../../services/sales.service';
 
 export function useSaleById(id) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const refetch = useCallback(() => {
+    setReloadKey((key) => key + 1);
+  }, []);
 
   useEffect(() => {
     if (id == null) return;
@@ -28,7 +33,7 @@ export function useSaleById(id) {
       }
     })();
     return () => { isMounted = false; };
-  }, [id]);
+  }, [id, reloadKey]);
 
-  return { data, loading, error };
+  return { data, loading, error, refetch };
 }

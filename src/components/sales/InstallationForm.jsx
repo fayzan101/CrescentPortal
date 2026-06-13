@@ -50,7 +50,7 @@ const InstallationForm = ({ saleId }) => {
     const [activeTab, setActiveTab] = useState(TABS.CLIENT);
     const [confidentialForm, setConfidentialForm] = useState(false)
     const { update, loading, error } = useUpdateTechnicianStage();
-    const { data: sale } = useSaleById(saleId);
+    const { data: sale, refetch: refetchSale } = useSaleById(saleId);
     const { data: clientCategories = [] } = useClientCategories();
     const { data: products = [] } = useProducts();
     const { data: packages = [] } = usePackages();
@@ -67,6 +67,16 @@ const InstallationForm = ({ saleId }) => {
         makeModel: "",
         vehicleYear: "",
         color: "",
+        zoneId: "",
+        deviceComboId: "",
+        simId: "",
+        accessory1Id: "",
+        accessory2Id: "",
+        accessory3Id: "",
+        packageId: "",
+        assignedTechnicianUserId: "",
+        deviceId: "",
+        deviceImei: "",
     });
 
     // Create client category options
@@ -140,6 +150,11 @@ const InstallationForm = ({ saleId }) => {
             packageId: stage.packageId ? String(stage.packageId) : prev.packageId || "",
             assignedTechnicianUserId: stage.assignedTechnicianUserId ? String(stage.assignedTechnicianUserId) : prev.assignedTechnicianUserId || "",
             deviceId: stage.deviceId ? String(stage.deviceId) : prev.deviceId || "",
+            deviceImei: stage.deviceImei
+                ? String(stage.deviceImei)
+                : stage.device?.imei
+                    ? String(stage.device.imei)
+                    : prev.deviceImei || "",
         }));
         // Set selected category from sale data
         if (sale?.clientDetails?.clientCategoryId || sale?.clientCategoryId) {
@@ -198,6 +213,7 @@ const InstallationForm = ({ saleId }) => {
                 color: form.color || undefined,
                 markComplete: true,
             });
+            await refetchSale();
             setSuccessMessage("Installation submitted successfully.");
             router.push('/dashboard/clients');
         }
@@ -376,6 +392,18 @@ const InstallationForm = ({ saleId }) => {
                             <FieldWrapper label="Select Device" required className="text-sm">
                                 <Select name="deviceId" value={form.deviceId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} disabled={true} />
                             </FieldWrapper>
+                            <FieldWrapper label="Device IMEI" required className="text-sm">
+                                <Input value={form.deviceImei || ""} placeholder="15-digit IMEI" className="text-sm py-2" disabled />
+                            </FieldWrapper>
+                            {(sale?.operationsAssignment?.issuance || sale?.inventoryIssuance) && (
+                                <FieldWrapper label="Inventory Issuance" className="text-sm">
+                                    <Input
+                                        value={(sale.operationsAssignment?.issuance ?? sale.inventoryIssuance)?.issuanceNo || ''}
+                                        className="text-sm py-2"
+                                        disabled
+                                    />
+                                </FieldWrapper>
+                            )}
                             <FieldWrapper label="Select Accessories 1" required className="text-sm">
                                 <Select name="accessory1Id" value={form.accessory1Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled={true} />
                             </FieldWrapper>

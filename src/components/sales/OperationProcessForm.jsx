@@ -9,10 +9,11 @@ import { useDeviceCombos } from '@/hooks/device-combo/useDeviceCombos';
 import { useSims } from '@/hooks/sims/useSims';
 import { useAccessories } from '@/hooks/accessories/useAccessories';
 import { useDevices } from '@/hooks/devices/useDevices';
-import { useEmployees } from '@/hooks/employee/useEmployees';
+import { useZoneTechnicians } from '@/hooks/org/useZoneTechnicians';
 import { useUpdateOperationsStage } from '@/hooks/sales/useUpdateOperationsStage';
 import { useSaleById } from '@/hooks/sales/useSaleById';
 import { useClientCategories } from '@/hooks/client-category/useClientCategories';
+import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
 
 const initialForm = {
     productId: '',
@@ -26,6 +27,7 @@ const initialForm = {
     assignedTechnicianUserId: '',
     deviceId: '',
     deviceImei: '',
+    storeId: '',
 };
 
 const mapOptions = (items, idKeys, labelKeys) =>
@@ -39,8 +41,9 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
     const [form, setForm] = useState(initialForm);
     const [successMessage, setSuccessMessage] = useState('');
     const [validationMessage, setValidationMessage] = useState('');
-    const { data: sale } = useSaleById(saleId);
+    const { data: sale, refetch: refetchSale } = useSaleById(saleId);
     const { data: clientCategories = [] } = useClientCategories();
+    const { data: storesRaw = [] } = useDropdownStores();
     const { update, loading, error } = useUpdateOperationsStage();
     const { data: products = [] } = useProducts();
     const { data: packages = [] } = usePackages();
@@ -49,7 +52,7 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
     const { data: sims = [] } = useSims();
     const { data: accessories = [] } = useAccessories();
     const { data: devices = [] } = useDevices();
-    const { data: employees = [] } = useEmployees();
+    const { data: zoneTechniciansData } = useZoneTechnicians(form.zoneId);
 
     // Helper to map clientCategoryId to name
     const getMappedLabel = (items, id, idKeys, labelKeys) => {
@@ -96,7 +99,16 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
             packageId: stage.packageId ? String(stage.packageId) : (normalizedSale.defaultPackageId ? String(normalizedSale.defaultPackageId) : ''),
             assignedTechnicianUserId: stage.assignedTechnicianUserId ? String(stage.assignedTechnicianUserId) : '',
             deviceId: stage.deviceId ? String(stage.deviceId) : '',
-            deviceImei: stage.deviceImei ? String(stage.deviceImei) : undefined,
+            deviceImei: stage.deviceImei
+                ? String(stage.deviceImei)
+                : stage.device?.imei
+                    ? String(stage.device.imei)
+                    : undefined,
+            storeId: stage.issuance?.storeId
+                ? String(stage.issuance.storeId)
+                : sale?.inventoryIssuance?.storeId
+                    ? String(sale.inventoryIssuance.storeId)
+                    : '',
         };
         // Only update if values actually changed
         setForm(prev => {
@@ -117,6 +129,18 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
         if (name === 'deviceImei') {
             const digitsOnly = value.replace(/\D/g, '').slice(0, 15);
             setForm((prev) => ({ ...prev, [name]: digitsOnly }));
+            return;
+        }
+        if (name === 'deviceId') {
+            setForm((prev) => ({ ...prev, deviceId: value }));
+            return;
+        }
+        if (name === 'zoneId') {
+            setForm((prev) => ({
+                ...prev,
+                zoneId: value,
+                assignedTechnicianUserId: '',
+            }));
             return;
         }
         setForm((prev) => ({ ...prev, [name]: value }));
@@ -142,10 +166,16 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                 'packageId',
                 'assignedTechnicianUserId',
                 'deviceId',
+                'deviceImei',
+                'storeId',
             ];
             const missing = requiredFields.filter((field) => !form[field]);
             if (missing.length) {
                 setValidationMessage('Please fill all required operations fields before sending to technician.');
+                return;
+            }
+            if (!isValidImei(form.deviceImei)) {
+                setValidationMessage('Device IMEI must be exactly 15 digits.');
                 return;
             }
         }
@@ -160,11 +190,24 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
             packageId: Number(form.packageId) || undefined,
             assignedTechnicianUserId: Number(form.assignedTechnicianUserId) || undefined,
             deviceId: Number(form.deviceId) || undefined,
+            deviceImei: form.deviceImei || undefined,
+            storeId: Number(form.storeId) || undefined,
             submitToTechnician,
         };
-        await update(saleId, payload);
-        setSuccessMessage(submitToTechnician ? 'Saved and sent to technician stage.' : 'Saved as hold.');
-        onSuccess(sale);
+        try {
+            const result = await update(saleId, payload);
+            await refetchSale();
+            setSuccessMessage(
+                submitToTechnician
+                    ? `Saved and sent to technician. Inventory issued${result?.operationsAssignment?.issuance?.issuanceNo ? `: ${result.operationsAssignment.issuance.issuanceNo}` : ''}.`
+                    : 'Saved as hold.',
+            );
+            if (submitToTechnician) {
+                onSuccess?.(result);
+            }
+        } catch {
+            setSuccessMessage('');
+        }
     };
 
     const productOptions = useMemo(() => mapOptions(products, ['id', 'productId'], ['productName', 'name']), [products]);
@@ -173,10 +216,29 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
     const comboOptions = useMemo(() => mapOptions(combos, ['id', 'deviceComboId'], ['comboName', 'name']), [combos]);
     const simOptions = useMemo(() => mapOptions(sims, ['id', 'simId'], ['simName', 'name']), [sims]);
     const accessoryOptions = useMemo(() => mapOptions(accessories, ['id', 'accessoryId'], ['accessoryName', 'name']), [accessories]);
-    const deviceOptions = useMemo(() => mapOptions(devices, ['id', 'deviceId'], ['deviceName', 'name']), [devices]);
+    const deviceOptions = useMemo(
+        () => (devices || []).map((item) => ({
+            value: String(item.deviceId ?? item.id ?? ''),
+            label: item.deviceName || item.name || `ID: ${item.deviceId}`,
+        })).filter((opt) => opt.value),
+        [devices],
+    );
+    const selectedZone = useMemo(
+        () => (zones || []).find((z) => String(z.zoneId ?? z.id) === String(form.zoneId)),
+        [zones, form.zoneId],
+    );
+    const storeOptions = useMemo(() => {
+        const raw = storesRaw?.data ?? storesRaw?.stores ?? storesRaw;
+        const list = Array.isArray(raw) ? raw : [];
+        const officeId = selectedZone?.officeId;
+        const filtered = officeId
+            ? list.filter((store) => !store.officeId || Number(store.officeId) === Number(officeId))
+            : list;
+        return mapOptions(filtered, ['storeId', 'id'], ['storeName', 'name']);
+    }, [storesRaw, selectedZone?.officeId]);
     const technicianOptions = useMemo(
-        () => mapOptions(employees, ['userId', 'id'], ['emailId', 'name', 'cnic']),
-        [employees],
+        () => mapOptions(zoneTechniciansData?.technicians ?? [], ['userId'], ['emailId', 'cnic']),
+        [zoneTechniciansData],
     );
 
     return (
@@ -294,17 +356,19 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                             </FieldWrapper>
                             
                             <FieldWrapper label="Assign Technician" required className="text-sm">
-                                <Select name="assignedTechnicianUserId" value={form.assignedTechnicianUserId} onChange={handleChange} placeholder="Select" className="text-sm py-2" 
-                                // options={technicianOptions}
-                                options={
-                                    [
-                                        { value: 4, label: 'Technician 1' },
-                                        { value: 4, label: 'Technician 2' },
-                                        { value: 4, label: 'Technician 3' },
-                                        { value: 4, label: 'Technician 4' },
-                                    ]
-                                }
-                                 />
+                                <Select
+                                    name="assignedTechnicianUserId"
+                                    value={form.assignedTechnicianUserId}
+                                    onChange={handleChange}
+                                    placeholder={form.zoneId ? 'Select zone technician' : 'Select zone first'}
+                                    className="text-sm py-2"
+                                    options={technicianOptions}
+                                    disabled={!form.zoneId}
+                                />
+                            </FieldWrapper>
+
+                            <FieldWrapper label="Issue From Store" required className="text-sm">
+                                <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
                             </FieldWrapper>
 
                             <FieldWrapper label="Select Device" required className="text-sm">
@@ -372,6 +436,17 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                 {validationMessage && <div className="text-sm text-amber-700">{validationMessage}</div>}
                 {error && <div className="text-sm text-red-600">{error}</div>}
                 {successMessage && <div className="text-sm text-green-600">{successMessage}</div>}
+                {(sale?.operationsAssignment?.issuance || sale?.inventoryIssuance) && (
+                    <div className="text-sm text-gray-700 border border-gray-200 rounded-lg p-3">
+                        Inventory linked:{' '}
+                        <span className="font-medium">
+                            {(sale.operationsAssignment?.issuance ?? sale.inventoryIssuance)?.issuanceNo}
+                        </span>
+                        {((sale.operationsAssignment?.issuance ?? sale.inventoryIssuance)?.store?.storeName) && (
+                            <span> from {(sale.operationsAssignment?.issuance ?? sale.inventoryIssuance).store.storeName}</span>
+                        )}
+                    </div>
+                )}
             </div>
         </>
     )

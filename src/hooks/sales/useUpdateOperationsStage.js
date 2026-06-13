@@ -15,7 +15,12 @@ export function useUpdateOperationsStage() {
       setLoading(false);
       return result;
     } catch (err) {
-      setError(err?.message || 'Failed to update operations stage');
+      const message =
+        err?.response?.data?.message ||
+        (Array.isArray(err?.response?.data?.message) ? err.response.data.message.join(', ') : null) ||
+        err?.message ||
+        'Failed to update operations stage';
+      setError(message);
       setLoading(false);
       throw err;
     }
