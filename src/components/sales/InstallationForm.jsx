@@ -18,6 +18,7 @@ import ConfidentialForm from "./ConfidentialForm";
 import { useUpdateTechnicianStage } from "@/hooks/sales/useUpdateTechnicianStage";
 import { useSaleById } from "@/hooks/sales/useSaleById";
 import { useClientCategories } from "@/hooks/client-category/useClientCategories";
+import { formatDateInput, getStageStatusMap } from "@/lib/saleWorkflow";
 
 const TABS = {
     CLIENT: "client",
@@ -128,39 +129,68 @@ const InstallationForm = ({ saleId }) => {
         };
     }, [sale, clientCategories, products, packages]);
 
+    const technicianStageStatus = useMemo(() => {
+        const map = getStageStatusMap(sale);
+        return map.TECHNICIAN;
+    }, [sale]);
+
+    const canEditInstallation = ['PENDING', 'IN_PROGRESS'].includes(technicianStageStatus);
+
     useEffect(() => {
-        const stage = sale?.operationsAssignment || sale?.installation || sale?.technicianStage || sale?.technician || {};
+        const ops = sale?.operationsAssignment || sale?.operationsStage || sale?.operationStage || {};
+        const inst = sale?.installation || sale?.technicianStage || sale?.technician || {};
+
         setForm((prev) => ({
             ...prev,
-            installationDate: stage.installationDate || prev.installationDate,
-            renewalDate: stage.renewalDate || prev.renewalDate,
-            registrationNo: stage.registrationNo || prev.registrationNo,
-            engineNo: stage.engineNo || prev.engineNo,
-            transmissionType: stage.transmissionType || prev.transmissionType,
-            chassisNo: stage.chassisNo || prev.chassisNo,
-            makeModel: stage.makeModel || prev.makeModel,
-            vehicleYear: stage.vehicleYear ? String(stage.vehicleYear) : prev.vehicleYear,
-            color: stage.color || prev.color,
-            zoneId: stage.zoneId ? String(stage.zoneId) : prev.zoneId || "",
-            deviceComboId: stage.deviceComboId ? String(stage.deviceComboId) : prev.deviceComboId || "",
-            simId: stage.simId ? String(stage.simId) : prev.simId || "",
-            accessory1Id: stage.accessory1Id ? String(stage.accessory1Id) : prev.accessory1Id || "",
-            accessory2Id: stage.accessory2Id ? String(stage.accessory2Id) : prev.accessory2Id || "",
-            accessory3Id: stage.accessory3Id ? String(stage.accessory3Id) : prev.accessory3Id || "",
-            packageId: stage.packageId ? String(stage.packageId) : prev.packageId || "",
-            assignedTechnicianUserId: stage.assignedTechnicianUserId ? String(stage.assignedTechnicianUserId) : prev.assignedTechnicianUserId || "",
-            deviceId: stage.deviceId ? String(stage.deviceId) : prev.deviceId || "",
-            deviceImei: stage.deviceImei
-                ? String(stage.deviceImei)
-                : stage.device?.imei
-                    ? String(stage.device.imei)
+            installationDate: formatDateInput(inst.installationDate) || prev.installationDate,
+            renewalDate: formatDateInput(inst.renewalDate) || prev.renewalDate,
+            registrationNo: inst.registrationNo ?? prev.registrationNo,
+            engineNo: inst.engineNo ?? prev.engineNo,
+            transmissionType: inst.transmissionType || prev.transmissionType,
+            chassisNo: inst.chassisNo ?? prev.chassisNo,
+            makeModel: inst.makeModel ?? prev.makeModel,
+            vehicleYear: inst.vehicleYear ? String(inst.vehicleYear) : prev.vehicleYear,
+            color: inst.color ?? prev.color,
+            zoneId: ops.zoneId ? String(ops.zoneId) : prev.zoneId || "",
+            deviceComboId: ops.deviceComboId ? String(ops.deviceComboId) : prev.deviceComboId || "",
+            simId: ops.simId ? String(ops.simId) : prev.simId || "",
+            accessory1Id: ops.accessory1Id ? String(ops.accessory1Id) : prev.accessory1Id || "",
+            accessory2Id: ops.accessory2Id ? String(ops.accessory2Id) : prev.accessory2Id || "",
+            accessory3Id: ops.accessory3Id ? String(ops.accessory3Id) : prev.accessory3Id || "",
+            packageId: ops.packageId ? String(ops.packageId) : prev.packageId || "",
+            assignedTechnicianUserId: ops.assignedTechnicianUserId ? String(ops.assignedTechnicianUserId) : prev.assignedTechnicianUserId || "",
+            deviceId: ops.deviceId ? String(ops.deviceId) : prev.deviceId || "",
+            deviceImei: ops.deviceImei
+                ? String(ops.deviceImei)
+                : ops.device?.imei
+                    ? String(ops.device.imei)
                     : prev.deviceImei || "",
         }));
-        // Set selected category from sale data
         if (sale?.clientDetails?.clientCategoryId || sale?.clientCategoryId) {
             setSelectedCategoryId(String(sale?.clientDetails?.clientCategoryId || sale?.clientCategoryId || ''));
         }
     }, [sale]);
+
+    const buildTechnicianPayload = (markComplete) => ({
+        installationDate: form.installationDate || undefined,
+        renewalDate: form.renewalDate || undefined,
+        registrationNo: form.registrationNo || undefined,
+        engineNo: form.engineNo || undefined,
+        transmissionType: form.transmissionType || undefined,
+        chassisNo: form.chassisNo || undefined,
+        makeModel: form.makeModel || undefined,
+        vehicleYear: Number(form.vehicleYear) || undefined,
+        color: form.color || undefined,
+        markComplete,
+    });
+
+    const handleSaveDraft = async () => {
+        if (!saleId || !canEditInstallation) return;
+        setValidationMessage("");
+        await update(saleId, buildTechnicianPayload(false));
+        await refetchSale();
+        setSuccessMessage("Installation progress saved.");
+    };
 
     const tabButtonClasses = (isActive) =>
         `
@@ -201,18 +231,7 @@ const InstallationForm = ({ saleId }) => {
                 setValidationMessage("Please complete all required installation fields before submit.");
                 return;
             }
-            await update(saleId, {
-                installationDate: form.installationDate || undefined,
-                renewalDate: form.renewalDate || undefined,
-                registrationNo: form.registrationNo || undefined,
-                engineNo: form.engineNo || undefined,
-                transmissionType: form.transmissionType || undefined,
-                chassisNo: form.chassisNo || undefined,
-                makeModel: form.makeModel || undefined,
-                vehicleYear: Number(form.vehicleYear) || undefined,
-                color: form.color || undefined,
-                markComplete: true,
-            });
+            await update(saleId, buildTechnicianPayload(true));
             await refetchSale();
             setSuccessMessage("Installation submitted successfully.");
             router.push('/dashboard/clients');
@@ -223,6 +242,11 @@ const InstallationForm = ({ saleId }) => {
     return (
         <div className="flex-1 flex flex-col gap-4 md:gap-6">
             {!saleId && <div className="text-sm text-yellow-700">Create a sale first, then complete installation by technician.</div>}
+            {saleId && !canEditInstallation && (
+                <div className="text-sm text-amber-700">
+                    Technician stage is {technicianStageStatus?.toLowerCase()}. Reopen at Technician stage to edit installation details.
+                </div>
+            )}
             {/* Tabs */}
             {
                 !confidentialForm && (
@@ -331,7 +355,7 @@ const InstallationForm = ({ saleId }) => {
                             </FieldWrapper>
 
                             <FieldWrapper label="Installation Date" required className="text-sm">
-                                <DateInput name="installationDate" value={form.installationDate} onChange={handleChange} placeholder="Select (dd/mm/yyyy)" className="text-sm py-2" />
+                                <DateInput name="installationDate" value={form.installationDate} onChange={handleChange} placeholder="Select (dd/mm/yyyy)" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                         </div>
 
@@ -342,7 +366,7 @@ const InstallationForm = ({ saleId }) => {
                             </FieldWrapper>
 
                             <FieldWrapper label="Renewal Date" required className="text-sm">
-                                <DateInput name="renewalDate" value={form.renewalDate} onChange={handleChange} placeholder="Select (dd/mm/yyyy)" className="text-sm py-2" />
+                                <DateInput name="renewalDate" value={form.renewalDate} onChange={handleChange} placeholder="Select (dd/mm/yyyy)" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                         </div>
                     </div>
@@ -362,7 +386,7 @@ const InstallationForm = ({ saleId }) => {
                                     <Select name="deviceComboId" value={form.deviceComboId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={comboOptions} disabled />
                                 </FieldWrapper>
                                 <FieldWrapper label="Select SIM" required className="text-sm">
-                                    <Select name="simId" value={form.simId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} />
+                                    <Select name="simId" value={form.simId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} disabled />
                                 </FieldWrapper>
                                 <FieldWrapper label="Select Accessories 2" required className="text-sm">
                                     <Select name="accessory2Id" value={form.accessory2Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
@@ -415,10 +439,10 @@ const InstallationForm = ({ saleId }) => {
                         {/* Column 1 */}
                         <div className="flex flex-col gap-3 md:gap-3">
                             <FieldWrapper label="Registration No." required className="text-sm">
-                                <Input name="registrationNo" value={form.registrationNo} onChange={handleChange} placeholder="Type (ABC-1234)" className="text-sm py-2" />
+                                <Input name="registrationNo" value={form.registrationNo} onChange={handleChange} placeholder="Type (ABC-1234)" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                             <FieldWrapper label="Engine No." required className="text-sm">
-                                <Input name="engineNo" value={form.engineNo} onChange={handleChange} placeholder="Type here" className="text-sm py-2" />
+                                <Input name="engineNo" value={form.engineNo} onChange={handleChange} placeholder="Type here" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                             <FieldWrapper label="Transmission Type" required className="text-sm">
                                 <Select
@@ -427,6 +451,7 @@ const InstallationForm = ({ saleId }) => {
                                     onChange={handleChange}
                                     placeholder="Select"
                                     className="text-sm py-2"
+                                    disabled={!canEditInstallation}
                                     options={[
                                         { value: "AUTO", label: "Auto" },
                                         { value: "MANUAL", label: "Manual" },
@@ -434,22 +459,22 @@ const InstallationForm = ({ saleId }) => {
                                 />
                             </FieldWrapper>
                             <FieldWrapper label="Chassis No." required className="text-sm">
-                                <Input name="chassisNo" value={form.chassisNo} onChange={handleChange} placeholder="Type here" className="text-sm py-2" />
+                                <Input name="chassisNo" value={form.chassisNo} onChange={handleChange} placeholder="Type here" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                         </div>
 
                         {/* Column 2 */}
                         <div className="flex flex-col gap-3 md:gap-3">
                             <FieldWrapper label="Make/Model" required className="text-sm">
-                                <Input name="makeModel" value={form.makeModel} onChange={handleChange} placeholder="Type here" className="text-sm py-2" />
+                                <Input name="makeModel" value={form.makeModel} onChange={handleChange} placeholder="Type here" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
 
                             <FieldWrapper label="Year" required className="text-sm">
-                                <Input name="vehicleYear" value={form.vehicleYear} onChange={handleChange} placeholder="Type year (e.g. 2023)" className="text-sm py-2" />
+                                <Input name="vehicleYear" value={form.vehicleYear} onChange={handleChange} placeholder="Type year (e.g. 2023)" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
 
                             <FieldWrapper label="Color" required className="text-sm">
-                                <Input name="color" value={form.color} onChange={handleChange} placeholder="Type here" className="text-sm py-2" />
+                                <Input name="color" value={form.color} onChange={handleChange} placeholder="Type here" className="text-sm py-2" disabled={!canEditInstallation} />
                             </FieldWrapper>
                         </div>
                     </div>
@@ -465,6 +490,9 @@ const InstallationForm = ({ saleId }) => {
                 !confidentialForm && (
                     <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4">
                         <button
+                            type="button"
+                            onClick={handleSaveDraft}
+                            disabled={loading || !saleId || !canEditInstallation}
                             className="
                 w-full sm:w-auto
                 text-customBlue
@@ -474,14 +502,15 @@ const InstallationForm = ({ saleId }) => {
                 text-sm font-medium
                 transition
                 hover:bg-gray-100
+                disabled:opacity-60 disabled:cursor-not-allowed
             "
                         >
-                            Save
+                            {loading ? "Saving..." : "Save"}
                         </button>
 
                         <button
                             onClick={handleNext}
-                            disabled={loading || !saleId}
+                            disabled={loading || !saleId || (activeTab === TABS.VEHICLE && !canEditInstallation)}
                             className={`
                 w-full sm:w-auto
                 px-4 py-2 rounded-lg text-sm font-medium transition

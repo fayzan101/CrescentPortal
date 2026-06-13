@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiSearch, FiEye, FiEdit, FiTrash2, FiPlus, FiFilter, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { useInstalledClients } from "@/hooks/sales/useInstalledClients";
-import { deleteSale } from "@/services/sales.service";
+import { deleteSale, reopenSale } from "@/services/sales.service";
 import ClientDetailModal from "./ClientDetailModal";
 
 const defaultClientRow = {
@@ -75,6 +75,7 @@ const Clients = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [screenSize, setScreenSize] = useState("desktop");
   const [deletingId, setDeletingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [viewSaleId, setViewSaleId] = useState(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -94,9 +95,19 @@ const Clients = () => {
     setViewSaleId(client.id);
   };
 
-  const handleEdit = (client) => {
+  const handleEdit = async (client) => {
     if (!client?.id) return;
-    router.push(`/dashboard/sales?saleId=${client.id}&form=installation`);
+    setActionMessage("");
+    setActionError("");
+    setEditingId(client.id);
+    try {
+      await reopenSale(client.id, "TECHNICIAN");
+      router.push(`/dashboard/sales?saleId=${client.id}&form=installation`);
+    } catch (err) {
+      setActionError(err?.response?.data?.message || err?.message || "Failed to reopen sale for editing.");
+    } finally {
+      setEditingId(null);
+    }
   };
 
   const handleDelete = async (client) => {
@@ -135,6 +146,7 @@ const Clients = () => {
         <button
           type="button"
           onClick={() => handleEdit(client)}
+          disabled={editingId === client.id}
           className={`${actionButtonClass} bg-blue-50 text-blue-600 hover:bg-blue-100`}
           title="Edit in Sales"
         >

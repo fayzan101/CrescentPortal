@@ -11,8 +11,8 @@ export const ClientProvider = ({ children }) => {
 
   // const openAddClientForm = () => setShowAddClient(true);
   const openAddClientForm = () => {
-    router.push("/dashboard/sales");
-  }
+    router.push("/dashboard/sales?form=addSale");
+  };
   const closeAddClientForm = () => setShowAddClient(false);
 
   return (

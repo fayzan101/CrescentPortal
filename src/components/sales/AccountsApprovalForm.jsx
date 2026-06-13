@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation';
 import FieldWrapper from '../ui/FieldWrapper';
 import Input from '../ui/Input';
 import Textarea from '../ui/TextArea';
@@ -11,7 +10,6 @@ import { usePackages } from '../../hooks/package/usePackages';
 import { useUpdateAccountsStage } from '../../hooks/sales/useUpdateAccountsStage';
 
 const AccountsApprovalForm = ({ saleId , onSuccess}) => {
-    const router = useRouter();
     const { data: sale, loading: saleLoading } = useSaleById(saleId);
     const { data: clientCategories = [] } = useClientCategories();
     const { data: products = [] } = useProducts();
@@ -83,15 +81,27 @@ const AccountsApprovalForm = ({ saleId , onSuccess}) => {
     const getValue = (field) =>
         form[field] !== undefined ? form[field] : (normalizedSale[field] ?? '');
 
-    const handleApproveSubmit = async () => {
+    const handleDecision = async (decision) => {
         if (!saleId) return;
         await update(saleId, {
             accountsRemark: getValue('accountRemarks') || '',
-            decision: 'APPROVED',
+            decision,
         });
-        // Navigate to Operation Process page after successful approval
-        // router.push('/main/operation-process');
-        onSuccess();
+        onSuccess?.();
+    };
+
+    const handleApproveSubmit = async () => {
+        await handleDecision('APPROVED');
+    };
+
+    const handleHoldSubmit = async () => {
+        await handleDecision('HOLD');
+    };
+
+    const handleRejectSubmit = async () => {
+        const confirmed = window.confirm('Reject this sale? It will be voided.');
+        if (!confirmed) return;
+        await handleDecision('REJECTED');
     };
 
     if (saleLoading) return <div>Loading...</div>;
@@ -244,6 +254,9 @@ const AccountsApprovalForm = ({ saleId , onSuccess}) => {
                 {/* Buttons Section */}
                 <div className="flex flex-col md:flex-row justify-end gap-3 mt-6 md:mt-8">
                     <button
+                        type="button"
+                        onClick={handleHoldSubmit}
+                        disabled={submitLoading || !saleId}
                         className="
                             w-full md:w-auto
                             bg-yellow-600
@@ -254,11 +267,15 @@ const AccountsApprovalForm = ({ saleId , onSuccess}) => {
                             text-sm font-medium
                             transition
                             hover:bg-yellow-700
+                            disabled:opacity-60
                         "
                     >
-                        Hold
+                        {submitLoading ? 'Saving...' : 'Hold'}
                     </button>
                     <button
+                        type="button"
+                        onClick={handleRejectSubmit}
+                        disabled={submitLoading || !saleId}
                         className="
                             w-full md:w-auto
                             bg-red-600
@@ -269,9 +286,10 @@ const AccountsApprovalForm = ({ saleId , onSuccess}) => {
                             text-sm font-medium
                             transition
                             hover:bg-red-700
+                            disabled:opacity-60
                         "
                     >
-                        Reject
+                        {submitLoading ? 'Saving...' : 'Reject'}
                     </button>
 
                     <button

@@ -11,6 +11,9 @@ const formatDate = (value) => {
 };
 
 const computeDueBalance = (sale) => {
+  if (sale?.dueBalance != null && sale?.dueBalance !== '') {
+    return String(sale.dueBalance);
+  }
   const amount = sale?.productDetails?.saleAmount;
   if (amount == null) return "0.00";
   const num = Number(amount);
@@ -40,7 +43,9 @@ const ClientDetailModal = ({ saleId, onClose }) => {
   const client = sale?.clientDetails || {};
   const product = sale?.productDetails || {};
   const installation = sale?.installation || {};
-  const office = sale?.operationsAssignment?.zone?.office;
+  const office = sale?.office || sale?.operationsAssignment?.zone?.office;
+  const vehiclesCount = sale?.vehiclesCount ?? (installation.registrationNo ? 1 : 0);
+  const activationDate = sale?.activationDate ?? installation.installedAt ?? installation.installationDate;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -82,6 +87,8 @@ const ClientDetailModal = ({ saleId, onClose }) => {
                   <DetailRow label="Status" value={client.clientStatus} />
                   <DetailRow label="Address" value={client.address} />
                   <DetailRow label="Office" value={office?.officeName} />
+                  <DetailRow label="Vehicles" value={vehiclesCount != null ? String(vehiclesCount) : "-"} />
+                  <DetailRow label="Activation Date" value={formatDate(activationDate)} />
                 </div>
               </section>
 
