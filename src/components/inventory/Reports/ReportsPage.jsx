@@ -13,6 +13,7 @@ import {
     getInventoryCardReport,
     getIssuanceReport,
     getPurchaseReport,
+    getPurchaseRequestsReport,
     getReturnsReport,
     getStockReport,
     getTransfersReport,
@@ -21,9 +22,11 @@ import {
 const REPORT_TYPE_OPTIONS = [
     { value: 'inventory-card', label: 'Inventory Card' },
     { value: 'stock', label: 'Stock Report' },
+    { value: 'issuance', label: 'Issuance Report' },
     { value: 'returns', label: 'Returns Report' },
     { value: 'transfers', label: 'Transfers Report' },
-    { value: 'purchase', label: 'Purchase Report' },
+    { value: 'purchase', label: 'Purchase Order Report' },
+    { value: 'purchase-requests', label: 'Purchase Request Report' },
 ];
 
 const REPORT_FETCHERS = {
@@ -33,6 +36,7 @@ const REPORT_FETCHERS = {
     returns: getReturnsReport,
     transfers: getTransfersReport,
     purchase: getPurchaseReport,
+    'purchase-requests': getPurchaseRequestsReport,
 };
 
 const normalizeList = (data) => {
@@ -53,6 +57,296 @@ const normalizeList = (data) => {
     }
 
     return [];
+};
+
+const formatDate = (value) => {
+    if (!value) return 'N/A';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleString();
+};
+
+const statusBadgeClass = (status) => {
+    const normalized = String(status || '').toUpperCase();
+    if (['APPROVED', 'ISSUED', 'CONFIRMED', 'NEW'].includes(normalized)) {
+        return 'bg-green-100 text-green-700';
+    }
+    if (['PARTIAL_RETURN', 'DRAFT', 'PENDING', 'SUBMITTED'].includes(normalized)) {
+        return 'bg-yellow-100 text-yellow-700';
+    }
+    if (['FULL_RETURN'].includes(normalized)) {
+        return 'bg-blue-100 text-blue-700';
+    }
+    if (['REJECTED'].includes(normalized)) {
+        return 'bg-red-100 text-red-700';
+    }
+    return 'bg-gray-100 text-gray-700';
+};
+
+const statusColumn = (key = 'status', label = 'Status') => ({
+    key,
+    label,
+    width: '12%',
+    render: (item) => (
+        <span className={`px-3 py-1 rounded text-xs font-semibold ${statusBadgeClass(item[key])}`}>
+            {item[key] || 'N/A'}
+        </span>
+    ),
+});
+
+const extractReportRows = (reportType, reportData) => {
+    if (reportType === 'inventory-card' && reportData && !Array.isArray(reportData)) {
+        return Array.isArray(reportData.rows) ? reportData.rows : [];
+    }
+    if (Array.isArray(reportData)) return reportData;
+    if (Array.isArray(reportData?.data)) return reportData.data;
+    if (Array.isArray(reportData?.rows)) return reportData.rows;
+    return [];
+};
+
+const normalizePurchaseRequestReportRows = (rows) => {
+    return rows.flatMap((pr) => {
+        const lines = Array.isArray(pr.lines) ? pr.lines : [];
+        const base = {
+            store: pr.store?.storeName || 'N/A',
+            office: pr.office?.officeName || 'N/A',
+            requestNo: pr.requestNo || (pr.purchaseRequestId ? `PR-${String(pr.purchaseRequestId).padStart(6, '0')}` : 'N/A'),
+            status: pr.status || 'N/A',
+            createdAt: formatDate(pr.createdAt),
+        };
+        if (!lines.length) {
+            return [{
+                id: `pr-${pr.purchaseRequestId ?? 'header'}`,
+                ...base,
+                itemSKU: 'N/A',
+                displayName: 'N/A',
+                itemGroup: 'N/A',
+                category: 'N/A',
+                qty: 'N/A',
+            }];
+        }
+        return lines.map((line, idx) => ({
+            id: `${pr.purchaseRequestId}-${line.purchaseRequestLineId ?? idx}`,
+            ...base,
+            itemSKU: line.item?.sku || 'N/A',
+            displayName: line.item?.itemName || `Item #${line.itemId ?? 'N/A'}`,
+            itemGroup: line.item?.group?.groupName || 'N/A',
+            category: line.item?.category?.categoryName || 'N/A',
+            qty: line.qty ?? 'N/A',
+        }));
+    });
+};
+
+const normalizePurchaseOrderReportRows = (rows) => {
+    return rows.flatMap((po) => {
+        const lines = Array.isArray(po.lines) ? po.lines : [];
+        const base = {
+            store: po.store?.storeName || po.shipToStore?.storeName || 'N/A',
+            office: po.shipToOffice?.officeName || 'N/A',
+            poNo: po.poNo || (po.purchaseOrderId ? `PO-${String(po.purchaseOrderId).padStart(6, '0')}` : 'N/A'),
+            prNo: po.purchaseRequest?.requestNo || (po.purchaseRequestId ? `PR-${po.purchaseRequestId}` : 'N/A'),
+            vendor: po.vendor?.vendorName || 'N/A',
+            status: po.status || 'N/A',
+            createdAt: formatDate(po.createdAt),
+        };
+        if (!lines.length) {
+            return [{
+                id: `po-${po.purchaseOrderId ?? 'header'}`,
+                ...base,
+                itemSKU: 'N/A',
+                displayName: 'N/A',
+                itemGroup: 'N/A',
+                category: 'N/A',
+                qty: 'N/A',
+            }];
+        }
+        return lines.map((line, idx) => ({
+            id: `${po.purchaseOrderId}-${line.purchaseOrderLineId ?? idx}`,
+            ...base,
+            itemSKU: line.item?.sku || 'N/A',
+            displayName: line.item?.itemName || `Item #${line.itemId ?? 'N/A'}`,
+            itemGroup: line.item?.group?.groupName || 'N/A',
+            category: line.item?.category?.categoryName || 'N/A',
+            qty: line.qty ?? 'N/A',
+        }));
+    });
+};
+
+const normalizeIssuanceReportRows = (rows) =>
+    rows.flatMap((row) => {
+        const lines = Array.isArray(row.lines) ? row.lines : [];
+        const base = {
+            store: row.store?.storeName || 'N/A',
+            issueNo: row.issuanceNo || row.issueNo || 'N/A',
+            serviceNo: row.sourceReference || row.serviceNo || 'N/A',
+            status: row.status || 'ISSUED',
+            createdAt: formatDate(row.createdAt),
+        };
+        if (!lines.length) {
+            return [{ id: `issuance-${row.issuanceId ?? 'header'}`, ...base, displayName: 'N/A', itemSKU: 'N/A', itemGroup: 'N/A', category: 'N/A', qty: 'N/A' }];
+        }
+        return lines.map((line, idx) => ({
+            id: `${row.issuanceId}-${line.issuanceLineId ?? idx}`,
+            ...base,
+            displayName: line.item?.itemName || `Item #${line.itemId ?? 'N/A'}`,
+            itemSKU: line.item?.sku || 'N/A',
+            itemGroup: line.item?.group?.groupName || 'N/A',
+            category: line.item?.category?.categoryName || 'N/A',
+            qty: line.qty ?? 'N/A',
+        }));
+    });
+
+const normalizeStockReportRows = (rows) =>
+    rows.map((row, idx) => ({
+        id: `${row.itemId ?? idx}-${row.storeId ?? idx}`,
+        store: row.store?.storeName || 'N/A',
+        displayName: row.item?.itemName || 'N/A',
+        itemSKU: row.item?.sku || 'N/A',
+        itemGroup: row.item?.group?.groupName || 'N/A',
+        category: row.item?.category?.categoryName || 'N/A',
+        balance: row.balance ?? 'N/A',
+        totalIn: row.totalIn ?? 'N/A',
+        totalOut: row.totalOut ?? 'N/A',
+    }));
+
+const normalizeInventoryCardRows = (rows) =>
+    rows.map((row, idx) => ({
+        id: row.stockLedgerId ?? row.id ?? idx + 1,
+        store: row.store?.storeName || 'N/A',
+        issueNo: row.referenceNo || row.reference || 'N/A',
+        serviceNo: row.movementType || 'N/A',
+        displayName: row.item?.itemName || 'N/A',
+        itemSKU: row.item?.sku || 'N/A',
+        itemGroup: row.item?.group?.groupName || 'N/A',
+        category: row.item?.category?.categoryName || row.movementType || 'N/A',
+        status: row.movementType || 'N/A',
+        qtyIn: row.qtyIn ?? 0,
+        qtyOut: row.qtyOut ?? 0,
+        movementDate: formatDate(row.movementDate || row.createdAt),
+    }));
+
+const normalizeGenericLineReportRows = (rows, refKey, refLabel) =>
+    rows.flatMap((row) => {
+        const lines = Array.isArray(row.lines) ? row.lines : [];
+        const refNo = row[`${refKey}No`] || row[refKey] || 'N/A';
+        const base = {
+            store: row.store?.storeName || row.fromStore?.storeName || 'N/A',
+            issueNo: refNo,
+            serviceNo: row.toStore?.storeName || row.remarks || 'N/A',
+            status: row.status || 'N/A',
+            createdAt: formatDate(row.createdAt),
+        };
+        if (!lines.length) {
+            return [{ id: `${refKey}-${row.id ?? refNo}`, ...base, displayName: 'N/A', itemSKU: 'N/A', itemGroup: 'N/A', category: 'N/A', qty: 'N/A' }];
+        }
+        return lines.map((line, idx) => ({
+            id: `${refKey}-${row.id ?? refNo}-${idx}`,
+            ...base,
+            displayName: line.item?.itemName || `Item #${line.itemId ?? 'N/A'}`,
+            itemSKU: line.item?.sku || 'N/A',
+            itemGroup: line.item?.group?.groupName || 'N/A',
+            category: line.item?.category?.categoryName || 'N/A',
+            qty: line.qty ?? line.qtyReceived ?? line.qtyReturned ?? 'N/A',
+        }));
+    });
+
+const normalizeReportRows = (reportType, rawRows) => {
+    switch (reportType) {
+        case 'purchase-requests':
+            return normalizePurchaseRequestReportRows(rawRows);
+        case 'purchase':
+            return normalizePurchaseOrderReportRows(rawRows);
+        case 'issuance':
+            return normalizeIssuanceReportRows(rawRows);
+        case 'stock':
+            return normalizeStockReportRows(rawRows);
+        case 'inventory-card':
+            return normalizeInventoryCardRows(rawRows);
+        case 'returns':
+            return normalizeGenericLineReportRows(rawRows, 'return', 'Return');
+        case 'transfers':
+            return normalizeGenericLineReportRows(rawRows, 'transfer', 'Transfer');
+        default:
+            return rawRows.map((item, idx) => ({
+                id: item.id ?? idx + 1,
+                store: item.store?.storeName || item.store || 'N/A',
+                issueNo: item.issueNo || item.issuanceNo || 'N/A',
+                serviceNo: item.serviceNo || 'N/A',
+                displayName: item.name || item.item?.itemName || 'N/A',
+                itemSKU: item.item?.sku || item.sku || 'N/A',
+                itemGroup: item.item?.group?.groupName || 'N/A',
+                category: item.item?.category?.categoryName || 'N/A',
+                status: item.status || 'N/A',
+            }));
+    }
+};
+
+const getReportColumns = (reportType) => {
+    switch (reportType) {
+        case 'purchase-requests':
+            return [
+                { key: 'requestNo', label: 'PR #', width: '10%' },
+                { key: 'store', label: 'Store', width: '14%' },
+                { key: 'office', label: 'Office', width: '12%' },
+                { key: 'displayName', label: 'Item Name', width: '16%' },
+                { key: 'itemSKU', label: 'Item SKU', width: '14%' },
+                { key: 'itemGroup', label: 'Item Group', width: '12%' },
+                { key: 'category', label: 'Category', width: '12%' },
+                { key: 'qty', label: 'Qty', width: '6%' },
+                statusColumn('status', 'Status'),
+                { key: 'createdAt', label: 'Created At', width: '14%' },
+            ];
+        case 'purchase':
+            return [
+                { key: 'poNo', label: 'PO #', width: '10%' },
+                { key: 'prNo', label: 'PR #', width: '10%' },
+                { key: 'store', label: 'Store', width: '12%' },
+                { key: 'office', label: 'Office', width: '10%' },
+                { key: 'vendor', label: 'Vendor', width: '12%' },
+                { key: 'displayName', label: 'Item Name', width: '14%' },
+                { key: 'itemSKU', label: 'Item SKU', width: '12%' },
+                { key: 'itemGroup', label: 'Item Group', width: '10%' },
+                { key: 'category', label: 'Category', width: '10%' },
+                { key: 'qty', label: 'Qty', width: '6%' },
+                statusColumn('status', 'Status'),
+                { key: 'createdAt', label: 'Created At', width: '12%' },
+            ];
+        case 'stock':
+            return [
+                { key: 'store', label: 'Store', width: '16%' },
+                { key: 'displayName', label: 'Item Name', width: '18%' },
+                { key: 'itemSKU', label: 'Item SKU', width: '14%' },
+                { key: 'itemGroup', label: 'Item Group', width: '14%' },
+                { key: 'category', label: 'Category', width: '12%' },
+                { key: 'balance', label: 'Balance', width: '10%' },
+                { key: 'totalIn', label: 'Total In', width: '8%' },
+                { key: 'totalOut', label: 'Total Out', width: '8%' },
+            ];
+        case 'inventory-card':
+            return [
+                { key: 'store', label: 'Store', width: '14%' },
+                { key: 'movementDate', label: 'Date', width: '14%' },
+                { key: 'displayName', label: 'Item Name', width: '16%' },
+                { key: 'itemSKU', label: 'Item SKU', width: '14%' },
+                { key: 'itemGroup', label: 'Item Group', width: '12%' },
+                { key: 'category', label: 'Category', width: '12%' },
+                { key: 'qtyIn', label: 'Qty In', width: '8%' },
+                { key: 'qtyOut', label: 'Qty Out', width: '8%' },
+                statusColumn('status', 'Movement'),
+            ];
+        default:
+            return [
+                { key: 'store', label: 'Store / Office', width: '16%' },
+                { key: 'issueNo', label: 'Reference No.', width: '12%' },
+                { key: 'serviceNo', label: 'Detail', width: '12%' },
+                { key: 'displayName', label: 'Name', width: '16%' },
+                { key: 'itemSKU', label: 'Item SKU', width: '14%' },
+                { key: 'itemGroup', label: 'Item Group', width: '12%' },
+                { key: 'category', label: 'Category', width: '10%' },
+                { key: 'qty', label: 'Qty', width: '8%' },
+                statusColumn('status', 'Status'),
+                { key: 'createdAt', label: 'Created At', width: '14%' },
+            ];
+    }
 };
 
 const ReportsPage = () => {
@@ -97,32 +391,20 @@ const ReportsPage = () => {
     });
 
     const data = useMemo(() => {
-        const raw = Array.isArray(reportData)
-            ? reportData
-            : Array.isArray(reportData?.data)
-                ? reportData.data
-                : Array.isArray(reportData?.rows)
-                    ? reportData.rows
-                : [];
-        return raw.map((item, idx) => ({
-            id: item.id ?? item.inventoryCardId ?? idx + 1,
-            store: item.store?.storeName || item.store || item.office || item.storeName || 'N/A',
-            issueNo: item.issueNo || item.issuanceNo || item.referenceNo || 'N/A',
-            serviceNo: item.serviceNo || item.guardServiceNo || 'N/A',
-            displayName: item.name || item.item?.itemName || item.guardName || item.fullName || 'N/A',
-            itemSKU: item.itemSKU || item.item?.sku || item.sku || 'N/A',
-            itemGroup: item.itemGroup || item.groupName || item.referenceType || item.movementType || 'N/A',
-            status: item.status || item.movementType || item.category || 'N/A',
-            category: item.category || item.categoryName || item.item?.uom || 'N/A',
+        const rawRows = extractReportRows(reportType, reportData);
+        const normalized = normalizeReportRows(reportType, rawRows);
+        return normalized.map((item) => ({
+            ...item,
             name: [
-                item.store?.storeName || item.store || item.office || item.storeName || 'N/A',
-                item.issueNo || item.issuanceNo || item.referenceNo || 'N/A',
-                item.serviceNo || item.guardServiceNo || 'N/A',
-                item.name || item.item?.itemName || item.guardName || item.fullName || 'N/A',
-                item.itemSKU || item.item?.sku || item.sku || 'N/A',
-            ].join(' '),
+                item.store,
+                item.requestNo || item.poNo || item.issueNo,
+                item.displayName,
+                item.itemSKU,
+                item.itemGroup,
+                item.category,
+            ].filter(Boolean).join(' '),
         }));
-    }, [reportData]);
+    }, [reportData, reportType]);
 
     const reportSummary = useMemo(() => ({
         balance: reportData?.balance ?? null,
@@ -171,32 +453,7 @@ const ReportsPage = () => {
         toast.success('Export will be added in next update.');
     };
 
-    const reportColumns = useMemo(() => [
-        { key: 'store', label: 'Store / Office', width: '18%' },
-        { key: 'issueNo', label: 'Issue No.', width: '12%' },
-        { key: 'serviceNo', label: 'Service No.', width: '12%' },
-        { key: 'displayName', label: 'Name', width: '18%' },
-        { key: 'itemSKU', label: 'Item SKU', width: '14%' },
-        { key: 'itemGroup', label: 'Item Group', width: '14%' },
-        {
-            key: 'category',
-            label: 'Category',
-            width: '12%',
-            render: (item) => (
-                <span className={`px-3 py-1 rounded text-xs font-semibold ${
-                    item.status === 'ISSUED' || item.status === 'New'
-                        ? 'bg-green-100 text-green-700'
-                        : item.status === 'PARTIAL_RETURN'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : item.status === 'FULL_RETURN'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-red-100 text-red-700'
-                }`}>
-                    {item.status || item.category}
-                </span>
-            ),
-        },
-    ], []);
+    const reportColumns = useMemo(() => getReportColumns(reportType), [reportType]);
 
     return (
         <div className="bg-white min-h-screen p-6">

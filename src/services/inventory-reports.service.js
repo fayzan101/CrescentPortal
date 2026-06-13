@@ -20,6 +20,16 @@ export const getIssuanceReport = async (params = {}) => {
   }
 };
 
+// Get purchase request report
+export const getPurchaseRequestsReport = async (params = {}) => {
+  try {
+    const response = await userRequest.get("/api/v1/reports/purchase-requests", { params });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Get purchase report
 export const getPurchaseReport = async (params = {}) => {
   try {
