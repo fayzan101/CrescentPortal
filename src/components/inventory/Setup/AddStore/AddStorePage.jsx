@@ -74,6 +74,29 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
     const loading = storesQuery.isLoading;
     const tableError = storesQuery.error?.message || null;
 
+    const getStoreId = (store) => {
+        if (!store) return null;
+        if (typeof store === 'string' || typeof store === 'number') return store;
+        return store.id ?? store.storeId ?? store._id ?? store.store_id ?? null;
+    };
+
+    const normalizedStores = useMemo(
+        () =>
+            stores.map((store) => ({
+                ...store,
+                id: store.id ?? store.storeId ?? store._id ?? store.store_id,
+                storeName: store.storeName || store.name || '',
+                officeId: store.officeId ?? store.office?.officeId ?? store.office?.id ?? '',
+                officeName:
+                    store.office?.officeName ||
+                    store.office?.branchName ||
+                    store.officeName ||
+                    officeNameById.get(String(store.officeId ?? store.office?.officeId ?? store.office?.id ?? '')) ||
+                    '',
+            })),
+        [officeNameById, stores]
+    );
+
     const { mutate: createStore, isPending: isCreating } = useCreateStore({
         onMutate: async (newStore) => {
             await queryClient.cancelQueries({ queryKey: ['stores'] });
@@ -147,25 +170,6 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
             await queryClient.invalidateQueries({ queryKey: ['stores'] });
         },
     });
-
-    const normalizedStores = stores.map((store) => ({
-        ...store,
-        id: store.id ?? store.storeId ?? store._id ?? store.store_id,
-        storeName: store.storeName || store.name || '',
-        officeId: store.officeId ?? store.office?.officeId ?? store.office?.id ?? '',
-        officeName:
-            store.office?.officeName ||
-            store.office?.branchName ||
-            store.officeName ||
-            officeNameById.get(String(store.officeId ?? store.office?.officeId ?? store.office?.id ?? '')) ||
-            '',
-    }));
-
-    const getStoreId = (store) => {
-        if (!store) return null;
-        if (typeof store === 'string' || typeof store === 'number') return store;
-        return store.id ?? store.storeId ?? store._id ?? store.store_id ?? null;
-    };
 
     const filteredStores = normalizedStores.filter(store =>
         store.storeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||

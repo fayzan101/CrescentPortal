@@ -36,6 +36,29 @@ const UNITS = {
 
 const UNIT_OPTIONS = Object.values(UNITS).map(unit => ({ value: unit.value, label: unit.label }));
 
+function formatMoney(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(2) : null;
+}
+
+function resolveDisplayTotal(item) {
+    if (item?.totalAmount != null && item.totalAmount !== '') {
+        return formatMoney(item.totalAmount);
+    }
+    const amount = Number(item?.amount);
+    const taxAmount = Number(item?.taxAmount);
+    if (Number.isFinite(amount) || Number.isFinite(taxAmount)) {
+        return formatMoney((Number.isFinite(amount) ? amount : 0) + (Number.isFinite(taxAmount) ? taxAmount : 0));
+    }
+    return null;
+}
+
+function formatDateValue(value) {
+    if (!value) return '-';
+    return String(value).slice(0, 10);
+}
+
 const ItemsPage = () => {
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState('');
@@ -262,26 +285,6 @@ const ItemsPage = () => {
     const toOptionalId = (value) => {
         const parsed = Number(value);
         return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-    };
-    const formatMoney = (value) => {
-        if (value === null || value === undefined || value === '') return null;
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed.toFixed(2) : null;
-    };
-    const resolveDisplayTotal = (item) => {
-        if (item?.totalAmount != null && item.totalAmount !== '') {
-            return formatMoney(item.totalAmount);
-        }
-        const amount = Number(item?.amount);
-        const taxAmount = Number(item?.taxAmount);
-        if (Number.isFinite(amount) || Number.isFinite(taxAmount)) {
-            return formatMoney((Number.isFinite(amount) ? amount : 0) + (Number.isFinite(taxAmount) ? taxAmount : 0));
-        }
-        return null;
-    };
-    const formatDateValue = (value) => {
-        if (!value) return '-';
-        return String(value).slice(0, 10);
     };
     const calculateTotalAmount = (amountValue, taxValue) => {
         const hasAnyValue = amountValue !== '' || taxValue !== '';
