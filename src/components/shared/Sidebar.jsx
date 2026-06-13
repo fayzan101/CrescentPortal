@@ -18,7 +18,8 @@ import {
   X,
   UtilityPole,
   LogOut,
-  PanelRight
+  PanelRight,
+  ShoppingCart
 } from "lucide-react";
 import LogoSVG from "@/components/svg/logoSVG";
 import Link from "next/link";
@@ -215,6 +216,7 @@ const Sidebar = ({collapseSide, setCollapseSide}) => {
                 </button>
                 {pagesOpen && (
                   <div className="mt-1 ml-8 space-y-1">
+                    <MenuItem icon={ShoppingCart} label="Sales" href="/dashboard/sales" />
                     <MenuItem icon={MapPin} label="Geofence" href="/dashboard/geofence" />
                     <MenuItem icon={Boxes} label="Inventory" href="/dashboard/inventory" />
                     <MenuItem icon={Wallet} label="Finance & Accounts" href="/dashboard/finance" />

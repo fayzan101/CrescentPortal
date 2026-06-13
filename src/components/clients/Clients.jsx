@@ -3,7 +3,7 @@
 import { useClientContext } from "@/context/clientContext";
 import React, { useEffect, useMemo, useState } from "react";
 import { FiSearch, FiEye, FiEdit, FiTrash2, FiPlus, FiFilter, FiChevronLeft, FiChevronRight, FiMoreVertical } from "react-icons/fi";
-import { useSales } from "@/hooks/sales/useSales";
+import { useInstalledClients } from "@/hooks/sales/useInstalledClients";
 import { deleteSale } from "@/services/sales.service";
 
 const defaultClientRow = {
@@ -25,9 +25,15 @@ const withDefault = (value, fallback) => {
   return value;
 };
 
+const formatDate = (value) => {
+  if (!value) return "-";
+  const raw = typeof value === "string" ? value : value instanceof Date ? value.toISOString() : String(value);
+  return raw.slice(0, 10);
+};
+
 const normalizeClient = (sale, index) => {
   const clientDetails = sale?.clientDetails || {};
-  const productDetails = sale?.productDetails || {};
+  const office = sale?.office || sale?.operationsAssignment?.zone?.office || null;
   const clientCategoryName =
     clientDetails?.clientCategory?.categoryName ||
     sale?.clientCategory?.categoryName ||
@@ -44,19 +50,19 @@ const normalizeClient = (sale, index) => {
       defaultClientRow.cell
     ),
     email: withDefault(clientDetails?.emailId || sale?.emailId || sale?.email, defaultClientRow.email),
-    vehicles: withDefault(sale?.vehiclesCount || sale?.vehicles, defaultClientRow.vehicles),
+    vehicles: withDefault(sale?.vehiclesCount, defaultClientRow.vehicles),
     category: withDefault(clientCategoryName, defaultClientRow.category),
-    activationDate: withDefault(sale?.createdAt || sale?.activationDate, defaultClientRow.activationDate),
+    activationDate: formatDate(
+      sale?.activationDate ||
+      sale?.installation?.installedAt ||
+      sale?.installation?.installationDate ||
+      sale?.createdAt
+    ),
     dueBalance: withDefault(
-      String(
-        sale?.dueBalance ??
-        sale?.balance ??
-        productDetails?.saleAmount ??
-        defaultClientRow.dueBalance
-      ),
+      sale?.dueBalance != null ? String(sale.dueBalance) : defaultClientRow.dueBalance,
       defaultClientRow.dueBalance
     ),
-    office: withDefault(sale?.office?.officeName || sale?.officeName, defaultClientRow.office),
+    office: withDefault(office?.officeName || sale?.officeName, defaultClientRow.office),
   };
 };
 
@@ -76,7 +82,7 @@ const Clients = () => {
   const [minVehicles, setMinVehicles] = useState("");
 
   const { openAddClientForm } = useClientContext();
-  const { data: sales = [], loading, error } = useSales();
+  const { data: sales = [], loading, error } = useInstalledClients();
   const clients = (Array.isArray(sales) ? sales : [])
     .map((sale, index) => normalizeClient(sale, index))
     .filter((client) => !deletedClientIds.includes(client.id));
@@ -419,7 +425,7 @@ const Clients = () => {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 md:mb-6">
           <div>
             <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800">Clients</h1>
-            <p className="text-gray-500 text-xs md:text-sm mt-1">Manage all your clients</p>
+            <p className="text-gray-500 text-xs md:text-sm mt-1">Installed customers (technician stage completed)</p>
           </div>
           
           <div className="flex items-center gap-2">

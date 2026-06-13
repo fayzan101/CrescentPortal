@@ -117,9 +117,10 @@ export async function getSaleById(id) {
 	}
 }
 
-export async function getSales() {
+export async function getSales(params = {}) {
 	try {
-		const response = await userRequest.get(API_BASE);
+		const qs = params.installedOnly ? '?installedOnly=true' : '';
+		const response = await userRequest.get(`${API_BASE}${qs}`);
 		return response.data?.data || response.data;
 	} catch (error) {
 		console.error('Error fetching sales:', error);

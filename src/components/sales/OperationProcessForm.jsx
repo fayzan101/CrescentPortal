@@ -420,9 +420,6 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                                         disabled={!form.storeId}
                                     />
                                 )}
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Device model is the catalog type; IMEI is the specific tracker unit issued from inventory.
-                                </p>
                             </FieldWrapper>
 
                             <FieldWrapper label="Select Accessories 1" required className="text-sm">
