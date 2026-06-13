@@ -8,6 +8,7 @@ import FieldWrapper from '../../ui/FieldWrapper';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import { useOffices } from '@/hooks/office/useOffices';
+import { useCities } from '@/hooks/city/useCities';
 import { useDropdownItems } from '@/hooks/inventory/utility/useDropdownItems';
 import { useItems } from '@/hooks/inventory/items/useItems';
 import { useDropdownVendors } from '@/hooks/inventory/utility/useDropdownVendors';
@@ -128,23 +129,56 @@ const PurchaseOrderPage = () => {
     const purchaseOrdersQuery = usePurchaseOrders();
     const purchaseRequestsQuery = usePurchaseRequests();
     const officesQuery = useOffices(undefined, { enabled: true });
+    const citiesQuery = useCities();
     const itemsQuery = useDropdownItems();
     const inventoryItemsQuery = useItems();
-    const vendorsQuery = useDropdownVendors();
+
+    const cities = useMemo(() => {
+        return normalizeList(citiesQuery.data).map((city) => ({
+            ...city,
+            cityId: city.cityId ?? city.id,
+            cityName: city.cityName || city.name || '',
+        }));
+    }, [citiesQuery.data]);
+
+    const resolveCityIdFromName = (name) => {
+        if (!name) return null;
+        const normalized = String(name).trim().toLowerCase();
+        const city = cities.find((c) => String(c.cityName).trim().toLowerCase() === normalized);
+        return city?.cityId ?? null;
+    };
 
     const offices = useMemo(() => {
-        return normalizeList(officesQuery.data).map((office) => ({
-            ...office,
-            id: office.id ?? office.officeId ?? office._id,
-            branchName: office.branchName || office.officeName || office.name || '',
-            cityId: office.cityId ?? office.city?.cityId ?? null,
-        }));
-    }, [officesQuery.data]);
+        return normalizeList(officesQuery.data).map((office) => {
+            const branchName = office.branchName || office.officeName || office.name || '';
+            const cityId =
+                office.cityId ??
+                office.city?.cityId ??
+                resolveCityIdFromName(branchName) ??
+                resolveCityIdFromName(office.officeName);
+            return {
+                ...office,
+                id: office.id ?? office.officeId ?? office._id,
+                branchName,
+                cityId,
+            };
+        });
+    }, [officesQuery.data, cities]);
 
     const officeOptions = useMemo(
         () => offices.map((office) => ({ value: String(office.id), label: office.branchName })),
         [offices]
     );
+
+    const selectedOfficeCityId = useMemo(() => {
+        if (!formData.officeId) return null;
+        const office = offices.find((o) => String(o.id) === String(formData.officeId));
+        return office?.cityId ?? null;
+    }, [offices, formData.officeId]);
+
+    const vendorsQuery = useDropdownVendors(selectedOfficeCityId ?? undefined, {
+        enabled: !!formData.officeId,
+    });
 
     const normalizedItems = useMemo(() => {
         return normalizeList(itemsQuery.data).map((item) => ({
@@ -199,21 +233,28 @@ const PurchaseOrderPage = () => {
             id: vendor.id ?? vendor.vendorId ?? vendor._id,
             name: vendor.name || vendor.vendorName || vendor.label || '',
             cityId: vendor.cityId ?? vendor.city?.cityId ?? null,
+            address: vendor.address || '',
         }));
     }, [vendorsQuery.data]);
 
-    const selectedOfficeCityId = useMemo(() => {
-        if (!formData.officeId) return null;
-        const office = offices.find((o) => String(o.id) === String(formData.officeId));
-        return office?.cityId ?? null;
-    }, [offices, formData.officeId]);
+    const resolveVendorCityId = (vendor) => {
+        if (vendor.cityId) return vendor.cityId;
+        const address = String(vendor.address || '').toLowerCase();
+        if (!address) return null;
+        for (const city of cities) {
+            const cityName = String(city.cityName || '').trim().toLowerCase();
+            if (cityName && address.includes(cityName)) return city.cityId;
+        }
+        return null;
+    };
 
     const filteredVendors = useMemo(() => {
-        if (!selectedOfficeCityId) return [];
+        if (!formData.officeId) return [];
+        if (!selectedOfficeCityId) return normalizedVendors;
         return normalizedVendors.filter(
-            (vendor) => vendor.cityId != null && String(vendor.cityId) === String(selectedOfficeCityId)
+            (vendor) => String(resolveVendorCityId(vendor) ?? '') === String(selectedOfficeCityId)
         );
-    }, [normalizedVendors, selectedOfficeCityId]);
+    }, [normalizedVendors, selectedOfficeCityId, formData.officeId, cities]);
 
     const vendorOptions = useMemo(
         () => filteredVendors.map((vendor) => ({ value: String(vendor.id), label: vendor.name })),

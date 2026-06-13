@@ -24,10 +24,12 @@ export const getDropdownItems = async () => {
 // Store options for dropdowns (same list as GET /api/v1/stores)
 export const getDropdownStores = async () => getStores();
 
-// Get dropdown vendors
-export const getDropdownVendors = async () => {
+// Get dropdown vendors (optional cityId filter)
+export const getDropdownVendors = async (cityId) => {
   try {
-    const response = await userRequest.get("/api/v1/dropdown/vendors");
+    const params = {};
+    if (cityId != null && cityId !== '') params.cityId = cityId;
+    const response = await userRequest.get("/api/v1/dropdown/vendors", { params });
     return response.data;
   } catch (error) {
     throw error;
