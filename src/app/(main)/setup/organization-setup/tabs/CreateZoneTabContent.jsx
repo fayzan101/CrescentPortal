@@ -202,16 +202,12 @@ const CreateZoneTabContent = () => {
 
   const resolveOfficeCityName = (office) => {
     if (!office) return "N/A";
-    return (
-      office.city?.cityName ||
-      citiesData?.find(
-        (city) =>
-          city.cityId === office.cityId ||
-          city.cityName?.toLowerCase() === office.officeName?.toLowerCase(),
-      )?.cityName ||
-      office.officeName ||
-      "N/A"
-    );
+    if (office.city?.cityName) return office.city.cityName;
+    if (office.cityId && citiesData?.length) {
+      const matched = citiesData.find((city) => city.cityId === office.cityId);
+      if (matched?.cityName) return matched.cityName;
+    }
+    return "N/A";
   };
 
   const employeeOptions = useMemo(() => {
