@@ -22,6 +22,7 @@ import { useAssignEmployeeToZone } from "@/hooks/zone-employee/useAssignEmployee
 import { useZoneEmployeeAssignments } from "@/hooks/zone-employee/useZoneEmployeeAssignments";
 import { useUpdateZoneEmployeeAssignment } from "@/hooks/zone-employee/useUpdateZoneEmployeeAssignment";
 import { useDeleteZoneEmployeeAssignment } from "@/hooks/zone-employee/useDeleteZoneEmployeeAssignment";
+import { useCities } from "@/hooks/city/useCities";
 
 const CreateZoneTabContent = () => {
   // ==================== STATE MANAGEMENT ====================
@@ -71,6 +72,7 @@ const CreateZoneTabContent = () => {
 
   // ==================== DATA FETCHING HOOKS ====================
   const { data: officesData } = useOffices();
+  const { data: citiesData } = useCities();
   const { data: employeesData } = useEmployees();
   const { data, isLoading, error, isFetching, refetch } = useZones();
   const {
@@ -176,6 +178,7 @@ const CreateZoneTabContent = () => {
         name: zone.zoneName,
         zoneName: zone.zoneName,
         officeId: zone.officeId,
+        office: zone.office,
         isActive: zone.isActive,
       }));
       setLocalZones(mapped);
@@ -197,14 +200,32 @@ const CreateZoneTabContent = () => {
     }));
   }, [officesData]);
 
+  const resolveOfficeCityName = (office) => {
+    if (!office) return "N/A";
+    return (
+      office.city?.cityName ||
+      citiesData?.find(
+        (city) =>
+          city.cityId === office.cityId ||
+          city.cityName?.toLowerCase() === office.officeName?.toLowerCase(),
+      )?.cityName ||
+      office.officeName ||
+      "N/A"
+    );
+  };
+
   const employeeOptions = useMemo(() => {
     const options = [{ value: "", label: "Select Employee" }];
     if (!employeesData || employeesData.length === 0) return options;
+    const technicians = employeesData.filter(
+      (emp) => String(emp.designation || "").toLowerCase() === "technician",
+    );
+    const source = technicians.length > 0 ? technicians : employeesData;
     return [
       ...options,
-      ...employeesData.map((emp) => ({
+      ...source.map((emp) => ({
         value: emp.employeeId ? emp.employeeId.toString() : "",
-        label: `${emp.employeeId} - ${emp.emailId || "N/A"}`,
+        label: `${emp.emailId || emp.employeeId || "Employee"}${emp.designation ? ` (${emp.designation})` : ""}`,
       })),
     ];
   }, [employeesData]);
@@ -226,15 +247,14 @@ const CreateZoneTabContent = () => {
       return [];
     }
 
-    const result = zoneEmployeeAssignments
+    return zoneEmployeeAssignments
       .map((assignment) => {
-        if (!assignment?.employeeId || !assignment?.zoneId) {
-          return null;
-        }
-
-        const employee = employeesData?.find((e) => e?.employeeId === assignment.employeeId);
-        const zone = zones?.find((z) => z?.id === assignment.zoneId);
-        const office = officesData?.find((o) => o?.officeId === zone?.officeId);
+        const employee = assignment.employee
+          ?? employeesData?.find((e) => e?.employeeId === assignment.employeeId);
+        const zone = assignment.zone ?? zones?.find((z) => z?.id === assignment.zoneId);
+        const office =
+          assignment.zone?.office ??
+          officesData?.find((o) => o?.officeId === zone?.officeId);
 
         if (!employee) {
           return null;
@@ -242,20 +262,24 @@ const CreateZoneTabContent = () => {
 
         return {
           zoneEmployeeId: assignment.zoneEmployeeId,
-          employeeId: employee.employeeId,
-          name: employee.emailId || "N/A",
+          employeeId: assignment.employeeId,
+          zoneId: assignment.zoneId,
+          name: employee.emailId || employee.user?.email || "N/A",
           call: employee.primaryMobileNo || "N/A",
           cnic: employee.cnic || "N/A",
-          zone: zone?.name || "N/A",
+          zone: zone?.zoneName || zone?.name || "N/A",
           office: office?.officeName || "N/A",
-          city: "N/A",
-          isActive: true,
+          city: resolveOfficeCityName(office),
+          isActive: employee.isActive !== false,
         };
       })
       .filter(Boolean);
+  }, [zoneEmployeeAssignments, employeesData, zones, officesData, citiesData]);
 
-    return result;
-  }, [zoneEmployeeAssignments, employeesData, zones, officesData]);
+  const selectedOfficeCityName = useMemo(() => {
+    const office = officesData?.find((o) => o.officeId === parseInt(selectedOfficeId, 10));
+    return resolveOfficeCityName(office);
+  }, [selectedOfficeId, officesData, citiesData]);
 
   // ==================== RESET FUNCTIONS ====================
 
@@ -455,7 +479,7 @@ const CreateZoneTabContent = () => {
           Create Zone
         </h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="space-y-1">
             <FieldWrapper label="Select Office" required className="text-sm">
               {officesData && officesData.length > 0 ? (
@@ -474,6 +498,17 @@ const CreateZoneTabContent = () => {
             </FieldWrapper>
           </div>
           
+          <div className="space-y-1">
+            <FieldWrapper label="City" className="text-sm">
+              <Input
+                value={selectedOfficeId ? selectedOfficeCityName : ""}
+                placeholder="Select office to view city"
+                className="text-sm"
+                disabled
+              />
+            </FieldWrapper>
+          </div>
+
           <div className="space-y-1">
             <FieldWrapper label="Zone Name" required className="text-sm">
               <Input 
