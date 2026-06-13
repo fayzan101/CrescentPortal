@@ -479,18 +479,20 @@ const AddNewSaleForm = ({ saleId, onSuccess }) => {
                                     disabled={!canEditExisting}
                                 />
                             </FieldWrapper>
-
-                            <FieldWrapper label="Sales Remarks" className="text-sm">
-                                <Textarea 
-                                    name="salesRemarks"
-                                    value={form.salesRemarks}
-                                    onChange={handleChange}
-                                    placeholder="Enter any sales remarks (optional)" 
-                                    className="min-h-[60px] md:min-h-[80px] text-sm"
-                                    disabled={!canEditExisting}
-                                />
-                            </FieldWrapper>
                         </div>
+                    </div>
+
+                    <div className="mt-3 md:mt-4">
+                        <FieldWrapper label="Sales Remarks" className="text-sm w-full">
+                            <Textarea
+                                name="salesRemarks"
+                                value={form.salesRemarks}
+                                onChange={handleChange}
+                                placeholder="Enter any sales remarks (optional)"
+                                className="w-full min-h-[80px] md:min-h-[100px] text-sm"
+                                disabled={!canEditExisting}
+                            />
+                        </FieldWrapper>
                     </div>
                 </div>
 

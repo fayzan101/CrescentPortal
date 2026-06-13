@@ -385,14 +385,14 @@ const InstallationForm = ({ saleId }) => {
                                 <FieldWrapper label="Select Device Combo" required className="text-sm">
                                     <Select name="deviceComboId" value={form.deviceComboId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={comboOptions} disabled />
                                 </FieldWrapper>
+                                <FieldWrapper label="Select Device" required className="text-sm">
+                                    <Select name="deviceId" value={form.deviceId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} disabled />
+                                </FieldWrapper>
+                                <FieldWrapper label="Device IMEI" required className="text-sm">
+                                    <Input value={form.deviceImei || ""} placeholder="15-digit IMEI" className="text-sm py-2" disabled />
+                                </FieldWrapper>
                                 <FieldWrapper label="Select SIM" required className="text-sm">
                                     <Select name="simId" value={form.simId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} disabled />
-                                </FieldWrapper>
-                                <FieldWrapper label="Select Accessories 2" required className="text-sm">
-                                    <Select name="accessory2Id" value={form.accessory2Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
-                                </FieldWrapper>
-                                <FieldWrapper label="Select Accessories 3" required className="text-sm">
-                                    <Select name="accessory3Id" value={form.accessory3Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
                                 </FieldWrapper>
                             </div>
 
@@ -408,12 +408,6 @@ const InstallationForm = ({ saleId }) => {
                                         disabled
                                     />
                                 </FieldWrapper>
-                                <FieldWrapper label="Select Device" required className="text-sm">
-                                    <Select name="deviceId" value={form.deviceId || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} disabled />
-                                </FieldWrapper>
-                                <FieldWrapper label="Device IMEI" required className="text-sm">
-                                    <Input value={form.deviceImei || ""} placeholder="15-digit IMEI" className="text-sm py-2" disabled />
-                                </FieldWrapper>
                                 {(sale?.operationsAssignment?.issuance || sale?.inventoryIssuance) && (
                                     <FieldWrapper label="Inventory Issuance" className="text-sm">
                                         <Input
@@ -425,6 +419,12 @@ const InstallationForm = ({ saleId }) => {
                                 )}
                                 <FieldWrapper label="Select Accessories 1" required className="text-sm">
                                     <Select name="accessory1Id" value={form.accessory1Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
+                                </FieldWrapper>
+                                <FieldWrapper label="Select Accessories 2" required className="text-sm">
+                                    <Select name="accessory2Id" value={form.accessory2Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
+                                </FieldWrapper>
+                                <FieldWrapper label="Select Accessories 3" required className="text-sm">
+                                    <Select name="accessory3Id" value={form.accessory3Id || ""} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} disabled />
                                 </FieldWrapper>
                             </div>
                         </div>
