@@ -53,3 +53,10 @@ export const searchGuards = async (service_no) => {
     throw error;
   }
 };
+
+export const getAvailableDeviceUnits = async (storeId, deviceId) => {
+  const params = { storeId };
+  if (deviceId) params.deviceId = deviceId;
+  const response = await userRequest.get("/api/v1/inventory/available-device-units", { params });
+  return response.data?.data ?? response.data ?? [];
+};

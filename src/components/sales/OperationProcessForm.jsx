@@ -14,6 +14,7 @@ import { useUpdateOperationsStage } from '@/hooks/sales/useUpdateOperationsStage
 import { useSaleById } from '@/hooks/sales/useSaleById';
 import { useClientCategories } from '@/hooks/client-category/useClientCategories';
 import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
+import { useAvailableDeviceUnits } from '@/hooks/inventory/utility/useAvailableDeviceUnits';
 
 const initialForm = {
     productId: '',
@@ -53,6 +54,10 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
     const { data: accessories = [] } = useAccessories();
     const { data: devices = [] } = useDevices();
     const { data: zoneTechniciansData } = useZoneTechnicians(form.zoneId);
+    const { data: availableUnits = [], isLoading: loadingUnits } = useAvailableDeviceUnits(
+        form.storeId,
+        form.deviceId,
+    );
 
     // Helper to map clientCategoryId to name
     const getMappedLabel = (items, id, idKeys, labelKeys) => {
@@ -132,7 +137,11 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
             return;
         }
         if (name === 'deviceId') {
-            setForm((prev) => ({ ...prev, deviceId: value }));
+            setForm((prev) => ({ ...prev, deviceId: value, deviceImei: '' }));
+            return;
+        }
+        if (name === 'storeId') {
+            setForm((prev) => ({ ...prev, storeId: value, deviceImei: '' }));
             return;
         }
         if (name === 'zoneId') {
@@ -236,6 +245,16 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
             : list;
         return mapOptions(filtered, ['storeId', 'id'], ['storeName', 'name']);
     }, [storesRaw, selectedZone?.officeId]);
+    const imeiOptions = useMemo(() => {
+        const list = Array.isArray(availableUnits) ? availableUnits : [];
+        return list.map((unit) => ({
+            value: unit.imei,
+            label: `${unit.imei} — ${unit.itemName || unit.sku}${unit.balance != null ? ` (stock: ${unit.balance})` : ''}`,
+        }));
+    }, [availableUnits]);
+
+    const showImeiDropdown = form.storeId && imeiOptions.length > 0;
+
     const technicianOptions = useMemo(
         () => mapOptions(zoneTechniciansData?.technicians ?? [], ['userId'], ['emailId', 'cnic']),
         [zoneTechniciansData],
@@ -375,15 +394,35 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                                 <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
                             </FieldWrapper>
 
-                            <FieldWrapper label="Device IMEI" required className="text-sm">
-                                <Input
-                                    name="deviceImei"
-                                    value={form.deviceImei}
-                                    onChange={handleChange}
-                                    placeholder="Enter 15-digit IMEI"
-                                    className="text-sm py-2"
-                                    maxLength={15}
-                                />
+                            <FieldWrapper label="Device IMEI (physical unit)" required className="text-sm">
+                                {showImeiDropdown ? (
+                                    <Select
+                                        name="deviceImei"
+                                        value={form.deviceImei}
+                                        onChange={handleChange}
+                                        placeholder={loadingUnits ? 'Loading units…' : 'Select in-stock IMEI'}
+                                        className="text-sm py-2"
+                                        options={imeiOptions}
+                                        disabled={!form.storeId || loadingUnits}
+                                    />
+                                ) : (
+                                    <Input
+                                        name="deviceImei"
+                                        value={form.deviceImei}
+                                        onChange={handleChange}
+                                        placeholder={
+                                            form.storeId
+                                                ? 'No units in stock — enter 15-digit IMEI'
+                                                : 'Select store and device first'
+                                        }
+                                        className="text-sm py-2"
+                                        maxLength={15}
+                                        disabled={!form.storeId}
+                                    />
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Device model is the catalog type; IMEI is the specific tracker unit issued from inventory.
+                                </p>
                             </FieldWrapper>
 
                             <FieldWrapper label="Select Accessories 1" required className="text-sm">
