@@ -249,6 +249,8 @@ const PurchaseOrderPage = () => {
             const purchaseRequestId = order.purchaseRequestId ?? order.purchaseRequest?.id ?? order.prId ?? null;
             const prOffice = purchaseRequestOfficeById.get(String(purchaseRequestId ?? ''));
             const resolvedOfficeId = prOffice?.officeId ?? '';
+            const vendorId = order.vendorId ?? order.vendor?.vendorId ?? order.vendor?.id ?? '';
+            const vendorFromList = normalizedVendors.find((vendor) => String(vendor.id) === String(vendorId));
             return ({
             ...order,
             id: order.purchaseOrderId ?? order.id ?? order._id,
@@ -259,19 +261,33 @@ const PurchaseOrderPage = () => {
                 'N/A',
             storeId: order.storeId ?? order.store?.storeId ?? order.store?.id ?? '',
             storeName: order.storeName || order.store?.storeName || order.store?.name || '',
-            vendorId: order.vendorId ?? order.vendor?.vendorId ?? order.vendor?.id ?? '',
-            vendorName: order.vendorName || order.vendor?.vendorName || order.vendor?.name || '',
+            vendorId,
+            vendorName:
+                order.vendorName ||
+                order.vendor?.vendorName ||
+                order.vendor?.name ||
+                vendorFromList?.name ||
+                '',
             userId: order.userId || order.createdBy || order.userEmail || '',
             lines: Array.isArray(order.lines) ? order.lines : Array.isArray(order.items) ? order.items : [],
             lineCount: Array.isArray(order.lines) ? order.lines.length : Array.isArray(order.items) ? order.items.length : 0,
-            purchasedRequestNo: order.purchasedRequestNo || order.purchaseRequestNo || order.prNo || (order.purchaseRequestId ? `PR-${order.purchaseRequestId}` : ''),
-            purchaseOrderNo: order.purchaseOrderNo || order.poNo || order.code || (order.purchaseOrderId ? `PO-${order.purchaseOrderId}` : ''),
+            purchasedRequestNo:
+                order.purchasedRequestNo ||
+                order.purchaseRequestNo ||
+                order.prNo ||
+                order.purchaseRequest?.requestNo ||
+                (order.purchaseRequestId ? `PR-${String(order.purchaseRequestId).padStart(6, '0')}` : ''),
+            purchaseOrderNo:
+                order.purchaseOrderNo ||
+                order.poNo ||
+                order.code ||
+                (order.purchaseOrderId ? `PO-${String(order.purchaseOrderId).padStart(6, '0')}` : ''),
             createdOn: order.createdOn || order.createdAt || order.date || '',
             approvalStatus: String(order.approvalStatus || order.status || 'DRAFT').toUpperCase(),
             deliveryStatus: String(order.deliveryStatus || order.delivery_state || 'PENDING').toUpperCase(),
             });
         });
-    }, [offices, purchaseRequestOfficeById, rawPurchaseOrders]);
+    }, [normalizedVendors, offices, purchaseRequestOfficeById, rawPurchaseOrders]);
 
     const normalizedPurchaseRequests = useMemo(() => {
         return normalizeList(purchaseRequestsQuery.data).map((request) => {
@@ -719,7 +735,7 @@ const PurchaseOrderPage = () => {
 
         try {
             await approvePurchaseRequestAsync(id);
-            await createPurchaseOrderAsync(result);
+            await createPurchaseOrderAsync({ ...result, status: 'APPROVED' });
         } catch (error) {
             setSubmitError(error?.response?.data?.message || error?.message || 'Failed to approve and save purchase order.');
             setPurchaseRequestActionPendingId(null);
@@ -1268,7 +1284,7 @@ const PurchaseOrderPage = () => {
                                     {isDownloadingPoPdf ? 'Downloading...' : 'Download PDF'}
                                 </button>
                             )}
-                            {previewPO.approvalStatus === 'PENDING' && (<>
+                            {!['APPROVED', 'REJECTED'].includes(previewPO.approvalStatus) && (<>
                                 <Input
                                     value={poRejectReason}
                                     onChange={(e) => setPoRejectReason(e.target.value)}

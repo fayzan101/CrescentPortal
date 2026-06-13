@@ -18,6 +18,24 @@ import { useCreatePurchaseRequest } from '@/hooks/inventory/purchase request/use
 import { useUpdatePurchaseRequest } from '@/hooks/inventory/purchase request/useUpdatePurchaseRequest';
 import { useDeletePurchaseRequest } from '@/hooks/inventory/purchase request/useDeletePurchaseRequest';
 import { purchaseRequestLineList, resolveItemRecordId, resolveItemUnitOfMeasurement } from '@/lib/inventoryItemMeta';
+import { useAppUserById } from '@/hooks/users/useAppUserById';
+
+function extractUserRecord(payload) {
+  if (Array.isArray(payload)) return payload[0] || null;
+  if (!payload || typeof payload !== 'object') return null;
+  const preferredKeys = ['data', 'user', 'result', 'details'];
+  for (const key of preferredKeys) {
+    const candidate = payload[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+  }
+  return payload;
+}
+
+function UserEmailCell({ userId }) {
+  const { data } = useAppUserById(userId, { enabled: !!userId });
+  const user = useMemo(() => extractUserRecord(data), [data]);
+  return user?.email || user?.emailId || user?.userEmail || 'N/A';
+}
 
 function formatApiErrorMessage(error, fallback) {
   const msg = error?.response?.data?.message;
@@ -242,10 +260,15 @@ const PurchaseRequestPage = () => {
         storeId: request.storeId ?? request.store?.storeId ?? request.store?.id ?? '',
         storeName: request.storeName || request.store?.storeName || request.store?.name || '',
         storeLocation: request.store?.location || '',
-        userId: request.requestedByUserId ?? request.userId ?? request.createdBy ?? request.userEmail ?? '',
+        requestedByName:
+          request.requestedBy?.email ||
+          request.requestedBy?.emailId ||
+          request.requestedByEmail ||
+          request.userEmail ||
+          '',
+        requestedByUserId: request.requestedByUserId ?? null,
         createdAt: request.createdAt || request.createdOn || request.date || new Date().toISOString(),
         status: String(request.status || request.approvalStatus || 'DRAFT').toUpperCase(),
-        requestedByUserId: request.requestedByUserId ?? null,
         approvedByUserId: request.approvedByUserId ?? null,
         approvedAt: request.approvedAt ?? null,
         rejectedByUserId: request.rejectedByUserId ?? null,
@@ -278,7 +301,13 @@ const PurchaseRequestPage = () => {
     { key: 'requestNo', label: 'PR #', width: '16%' },
     { key: 'officeName', label: 'Office', width: '14%', render: (item) => item.officeName || 'N/A' },
     { key: 'storeName', label: 'Store', width: '18%', render: (item) => item.storeName || 'N/A' },
-    { key: 'userId', label: 'Requested By', width: '14%', render: (item) => item.userId || 'N/A' },
+    {
+      key: 'requestedByName',
+      label: 'Requested By',
+      width: '14%',
+      render: (item) =>
+        item.requestedByName || (item.requestedByUserId ? <UserEmailCell userId={item.requestedByUserId} /> : 'N/A'),
+    },
     {
       key: 'totalAmount',
       label: 'Total Amount',
@@ -703,7 +732,6 @@ const PurchaseRequestPage = () => {
                   ['Office', previewRequest.officeName || 'N/A'],
                   ['Store', previewRequest.storeName || 'N/A'],
                   ['Store Location', previewRequest.storeLocation || 'N/A'],
-                  ['Requested By User ID', previewRequest.userId || 'N/A'],
                   ['Created On', new Date(previewRequest.createdAt).toLocaleString()],
                   ['Status', previewRequest.status || 'DRAFT'],
                 ].map(([label, value]) => (
@@ -712,6 +740,17 @@ const PurchaseRequestPage = () => {
                     <p className="text-sm text-gray-900">{value}</p>
                   </div>
                 ))}
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Requested By</p>
+                  <p className="text-sm text-gray-900">
+                    {previewRequest.requestedByName ||
+                      (previewRequest.requestedByUserId ? (
+                        <UserEmailCell userId={previewRequest.requestedByUserId} />
+                      ) : (
+                        'N/A'
+                      ))}
+                  </p>
+                </div>
               </div>
 
               {previewItems.length > 0 && (
