@@ -11,8 +11,10 @@ import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
 import { useDropdownItems } from '@/hooks/inventory/utility/useDropdownItems';
 import { useSearchGuards } from '@/hooks/inventory/utility/useSearchGuards';
 import { useBulkIssuance } from '@/hooks/inventory/movements/useBulkIssuance';
+import { useOffices } from '@/hooks/office/useOffices';
 import { normalizeApiList } from '@/lib/normalizeApiList';
 import { resolveItemRecordId, resolveItemUnitOfMeasurement } from '@/lib/inventoryItemMeta';
+import OverviewSubPanels from './OverviewSubPanels';
 
 const  OverviewPage = () => {
     const [activeSubTab, setActiveSubTab] = useState('inventory-card');
@@ -43,6 +45,7 @@ const  OverviewPage = () => {
     const { data: dashboardStats } = useDashboardStats();
     const { data: storesRaw = [] } = useDropdownStores();
     const { data: itemsRaw = [] } = useDropdownItems();
+    const { data: officesRaw = [] } = useOffices();
     const { data: guardSearchResult } = useSearchGuards(formData.serviceNo);
     const { mutateAsync: submitBulkIssuance } = useBulkIssuance();
 
@@ -70,11 +73,10 @@ const  OverviewPage = () => {
         name: store.name || store.storeName || store.label || 'N/A',
     }));
 
-    const locations = [
-        { id: '1', locationName: 'Office Building' },
-        { id: '2', locationName: 'Factory Floor' },
-        { id: '3', locationName: 'Storage Area' },
-    ];
+    const locations = normalizeApiList(officesRaw).map((office) => ({
+        id: String(office.id ?? office.officeId ?? office.value ?? ''),
+        locationName: office.officeName || office.branchName || office.name || 'Office',
+    })).filter((office) => office.id);
 
     const storeInventory = normalizeApiList(itemsRaw).map((item) => ({
         id: resolveItemRecordId(item) || String(item.id ?? item.itemId ?? item.value ?? ''),
@@ -114,8 +116,11 @@ const  OverviewPage = () => {
             itemId: formData.selectItem,
             itemName: selectedItem.name,
             sku: selectedItem.sku,
+            itemSize: formData.itemSize || '',
             unitOfMeasurement:
-                selectedItem.resolvedUom || formData.itemSize || 'Unit',
+                formData.itemSize ||
+                selectedItem.resolvedUom ||
+                'Unit',
             quantity: parseInt(formData.quantity),
         };
 
@@ -148,26 +153,34 @@ const  OverviewPage = () => {
     };
 
     const handleSave = async () => {
-        if (reviewItems.length === 0) return;
-        
+        if (!formData.selectStore || reviewItems.length === 0) return;
+
         setIsSubmitting(true);
         try {
+            const selectedLocation = locations.find(
+                (location) => String(location.id) === String(formData.selectLocation)
+            );
             const payload = {
-                serviceNo: formData.serviceNo,
-                guardName: formData.guardName,
-                isFirstSupply: formData.newOldSupply === 'yes',
-                storeId: formData.selectStore || undefined,
-                locationId: formData.selectLocation || undefined,
-                items: reviewItems.map((item) => ({
-                    itemId: item.itemId,
-                    quantity: item.quantity,
-                    uom: item.unitOfMeasurement,
-                })),
+                issuances: [{
+                    storeId: Number(formData.selectStore),
+                    issuedTo: formData.guardName || formData.serviceNo || undefined,
+                    remarks: [
+                        formData.serviceNo ? `Service No: ${formData.serviceNo}` : null,
+                        formData.newOldSupply ? `First supply: ${formData.newOldSupply}` : null,
+                        selectedLocation ? `Office: ${selectedLocation.locationName}` : null,
+                    ].filter(Boolean).join('; ') || undefined,
+                    lines: reviewItems.map((item) => ({
+                        itemId: Number(item.itemId),
+                        qty: Math.max(1, Number(item.quantity) || 1),
+                        note: item.itemSize ? `Size: ${item.itemSize}` : undefined,
+                    })),
+                }],
             };
             await submitBulkIssuance(payload);
-            setIsSubmitting(false);
             handleCancel();
         } catch (_error) {
+            // error surfaced by mutation caller if configured
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -189,7 +202,7 @@ const  OverviewPage = () => {
             </div>
 
             {/* Sub Tabs */}
-            {/* <div className="flex flex-wrap gap-2 mb-6 pb-4 border-b border-gray-200">
+            <div className="flex flex-wrap gap-2 mb-6 pb-4 border-b border-gray-200">
                 {subTabs.map((tab) => (
                     <button
                         key={tab.id}
@@ -205,8 +218,12 @@ const  OverviewPage = () => {
                         {tab.label}
                     </button>
                 ))}
-            </div> */}
+            </div>
 
+            {activeSubTab !== 'inventory-card' ? (
+                <OverviewSubPanels activeSubTab={activeSubTab} />
+            ) : (
+            <>
             {/* Form Section */}
             <div className="bg-gray-50 rounded-xl p-6 mb-6">
                 {/* First Row - 3 columns */}
@@ -445,6 +462,8 @@ const  OverviewPage = () => {
                     )}
                 </button>
             </div>
+            </>
+            )}
         </div>
     );
 };

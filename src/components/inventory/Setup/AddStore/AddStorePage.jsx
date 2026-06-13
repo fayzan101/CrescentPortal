@@ -7,6 +7,8 @@ import DataTable from '../../../components/DataTable';
 import FieldWrapper from '../../../ui/FieldWrapper';
 import Input from '../../../ui/Input';
 import EditModal from '@/components/components/EditModal';
+import Select from '../../../ui/Select';
+import { useOffices } from '@/hooks/office/useOffices';
 import { useStores } from '@/hooks/inventory/setup/useStores';
 import { useCreateStore } from '@/hooks/inventory/setup/useCreateStore';
 import { useUpdateStore } from '@/hooks/inventory/setup/useUpdateStore';
@@ -17,6 +19,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
     const [formData, setFormData] = useState({
         storeName: '',
         location: '',
+        officeId: '',
         isActive: true,
     });
     const [searchTerm, setSearchTerm] = useState('');
@@ -24,6 +27,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
     const [selectedStore, setSelectedStore] = useState(null);
     const [editStoreName, setEditStoreName] = useState('');
     const [editLocation, setEditLocation] = useState('');
+    const [editOfficeId, setEditOfficeId] = useState('');
     const [updateError, setUpdateError] = useState(null);
     const [submitError, setSubmitError] = useState(null);
 
@@ -48,7 +52,25 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
     };
 
     const storesQuery = useStores();
+    const officesQuery = useOffices(undefined, { enabled: true });
     const stores = useMemo(() => normalizeList(storesQuery.data), [storesQuery.data]);
+    const offices = useMemo(
+        () =>
+            normalizeList(officesQuery.data).map((office) => ({
+                id: office.id ?? office.officeId ?? office._id,
+                name: office.branchName || office.officeName || office.name || '',
+            })),
+        [officesQuery.data]
+    );
+    const officeOptions = useMemo(
+        () => offices.map((office) => ({ value: String(office.id), label: office.name })),
+        [offices]
+    );
+    const officeNameById = useMemo(() => {
+        const map = new Map();
+        offices.forEach((office) => map.set(String(office.id), office.name));
+        return map;
+    }, [offices]);
     const loading = storesQuery.isLoading;
     const tableError = storesQuery.error?.message || null;
 
@@ -130,6 +152,13 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
         ...store,
         id: store.id ?? store.storeId ?? store._id ?? store.store_id,
         storeName: store.storeName || store.name || '',
+        officeId: store.officeId ?? store.office?.officeId ?? store.office?.id ?? '',
+        officeName:
+            store.office?.officeName ||
+            store.office?.branchName ||
+            store.officeName ||
+            officeNameById.get(String(store.officeId ?? store.office?.officeId ?? store.office?.id ?? '')) ||
+            '',
     }));
 
     const getStoreId = (store) => {
@@ -145,7 +174,8 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
 
     const tableColumns = [
         { key: 'storeName', label: 'Store Name', width: '20%' },
-        { key: 'location', label: 'City', width: '20%' },
+        { key: 'location', label: 'City', width: '16%' },
+        { key: 'officeName', label: 'Office', width: '18%', render: (item) => item.officeName || 'N/A' },
         {
             key: 'isActive',
             label: 'Status',
@@ -180,19 +210,20 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
             {
                 storeName: formData.storeName,
                 location: formData.location,
+                ...(formData.officeId ? { officeId: Number(formData.officeId) } : {}),
                 isActive: formData.isActive,
             },
             {
                 onSuccess: () => {
                     onMarkCompleted?.('add-store');
-                    setFormData({ storeName: '', location: '', isActive: true });
+                    setFormData({ storeName: '', location: '', officeId: '', isActive: true });
                 },
             }
         );
     };
 
     const handleCancel = () => {
-        setFormData({ storeName: '', location: '', isActive: true });
+        setFormData({ storeName: '', location: '', officeId: '', isActive: true });
     };
 
     const handleToggleStatus = (store, index, nextValue) => {
@@ -202,11 +233,12 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
 
         updateStore({
             id: storeId,
-            data: {
-                storeName: targetStore.storeName,
-                location: targetStore.location,
-                isActive: typeof nextValue === 'boolean' ? nextValue : !targetStore.isActive,
-            },
+                data: {
+                    storeName: targetStore.storeName,
+                    location: targetStore.location,
+                    officeId: targetStore.officeId ? Number(targetStore.officeId) : undefined,
+                    isActive: typeof nextValue === 'boolean' ? nextValue : !targetStore.isActive,
+                },
         });
     };
 
@@ -214,6 +246,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
         setSelectedStore(store);
         setEditStoreName(store.storeName || store.name || '');
         setEditLocation(store.location || '');
+        setEditOfficeId(store.officeId ? String(store.officeId) : '');
         setUpdateError(null);
         setShowEditModal(true);
     };
@@ -230,6 +263,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
                 data: {
                     storeName: editStoreName,
                     location: editLocation,
+                    ...(editOfficeId ? { officeId: Number(editOfficeId) } : {}),
                     isActive: selectedStore.isActive,
                 },
             },
@@ -248,6 +282,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
         setSelectedStore(null);
         setEditStoreName('');
         setEditLocation('');
+        setEditOfficeId('');
         setUpdateError(null);
     };
 
@@ -272,7 +307,7 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
                 <>
                     {/* Form Section */}
                     <div className="mb-8">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-1">
                                 <FieldWrapper label="Store Name" required className="text-sm">
                                     <Input
@@ -293,6 +328,19 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
                                         onChange={handleInputChange}
                                         placeholder="Type here"
                                         className="text-sm py-2"
+                                    />
+                                </FieldWrapper>
+                            </div>
+
+                            <div className="space-y-1">
+                                <FieldWrapper label="Office" className="text-sm">
+                                    <Select
+                                        name="officeId"
+                                        value={formData.officeId}
+                                        onChange={handleInputChange}
+                                        options={officeOptions}
+                                        placeholder="Select office"
+                                        className="text-sm"
                                     />
                                 </FieldWrapper>
                             </div>
@@ -353,7 +401,14 @@ const AddStorePage = ({ onStepChange, onMarkCompleted }) => {
                 itemType="store"
                 fields={[
                     { label: "Store Name", value: editStoreName, onChange: setEditStoreName },
-                    { label: "Location",   value: editLocation,  onChange: setEditLocation  },
+                    { label: "Location", value: editLocation, onChange: setEditLocation },
+                    {
+                        label: "Office",
+                        type: "select",
+                        value: editOfficeId,
+                        onChange: setEditOfficeId,
+                        options: officeOptions,
+                    },
                 ]}
             />
         </>

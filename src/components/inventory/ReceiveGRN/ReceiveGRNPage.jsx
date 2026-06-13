@@ -121,6 +121,7 @@ const ReceiveGRNPage = () => {
   const [grnFormData, setGrnFormData] = useState({
     purchaseOrderId: '',
     storeId: '',
+    officeId: '',
     vendorId: '',
     invoicePeriodDays: 30,
     itemId: '',
@@ -186,7 +187,7 @@ const ReceiveGRNPage = () => {
           id: order.id ?? order.purchaseOrderId ?? order._id,
           poNo: order.purchaseOrderNo || order.poNo || order.code || '',
           prNo: order.purchaseRequestNo || order.purchasedRequestNo || order.prNo || '',
-          officeId: order.officeId ?? order.office?.id ?? order.office?.officeId ?? '',
+          officeId: order.officeId ?? order.shipToOfficeId ?? order.purchaseRequest?.officeId ?? order.office?.id ?? order.office?.officeId ?? '',
           officeName: order.officeName || order.office?.branchName || order.branchName || '',
           storeId: order.storeId ?? order.store?.id ?? order.store?.storeId ?? '',
           vendorId: order.vendorId ?? order.vendor?.id ?? order.vendor?.vendorId ?? '',
@@ -210,7 +211,8 @@ const ReceiveGRNPage = () => {
           grn.purchaseOrder?.purchaseRequest?.requestNo ||
           grn.purchaseOrder?.purchaseRequestNo ||
           '',
-        officeName: grn.officeName || grn.office?.branchName || grn.branchName || '',
+        officeId: grn.officeId ?? grn.office?.officeId ?? grn.office?.id ?? '',
+        officeName: grn.officeName || grn.office?.branchName || grn.office?.officeName || grn.branchName || '',
         storeId: grn.storeId ?? grn.store?.storeId ?? grn.store?.id ?? '',
         storeName: grn.storeName || grn.store?.storeName || grn.store?.name || '',
         vendorId: grn.vendorId ?? grn.purchaseOrder?.vendorId ?? '',
@@ -326,6 +328,18 @@ const ReceiveGRNPage = () => {
     setPreviewGrn(null);
   };
 
+  const mapGrnLineToFormItem = (line, idx, parentId) => ({
+    id: line.id ?? line.grnLineId ?? `${parentId ?? 'grn'}-line-${idx}`,
+    itemId: line.itemId,
+    itemName: line.item?.itemName || line.itemName || line.item?.name || `Item #${line.itemId}`,
+    sku: line.item?.sku || line.sku || '',
+    quantityReceived: Math.max(1, Number(line.qtyReceived ?? line.qty ?? line.quantityReceived ?? 1)),
+    quantityOrdered: Number(line.qtyOrdered ?? line.quantityOrdered ?? line.qty ?? 0),
+    unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+    conditionStatus: line.conditionStatus || 'NEW',
+    poItemId: line.poLineId ?? line.purchaseOrderLineId ?? null,
+  });
+
   const handleEdit = (grn) => {
     console.log('[ReceiveGRNPage.handleEdit] Editing GRN:', grn);
     
@@ -339,13 +353,17 @@ const ReceiveGRNPage = () => {
     setGrnFormData({
       purchaseOrderId: grn.purchaseOrderId || '',
       storeId: grn.storeId || '',
+      officeId: grn.officeId || grn.office?.officeId || grn.office?.id
+        ? String(grn.officeId ?? grn.office?.officeId ?? grn.office?.id ?? '')
+        : '',
       vendorId: grn.vendorId || '',
       invoicePeriodDays: Number(grn.invoicePeriodDays ?? 30),
       itemId: '',
       quantityReceived: 1,
       conditionStatus: 'NEW'
     });
-    setGrnItems(Array.isArray(grn.items) ? grn.items : []);
+    const sourceLines = Array.isArray(grn.items) ? grn.items : Array.isArray(grn.lines) ? grn.lines : [];
+    setGrnItems(sourceLines.map((line, idx) => mapGrnLineToFormItem(line, idx, grn.id)));
     setShowAddModal(true);
   };
 
@@ -441,6 +459,7 @@ const ReceiveGRNPage = () => {
     setGrnFormData({
       purchaseOrderId: '',
       storeId: '',
+      officeId: '',
       vendorId: '',
       invoicePeriodDays: 30,
       itemId: '',
@@ -469,6 +488,7 @@ const ReceiveGRNPage = () => {
         ...prev,
         purchaseOrderId: String(poId),
         storeId: po.storeId ? String(po.storeId) : prev.storeId,
+        officeId: po.officeId ? String(po.officeId) : prev.officeId,
         vendorId: po.vendorId ? String(po.vendorId) : prev.vendorId,
       }));
       setGrnItems(autoItems);
@@ -586,10 +606,18 @@ const ReceiveGRNPage = () => {
     const payload = {
       purchaseOrderId: Number(grnFormData.purchaseOrderId),
       invoicePeriodDays: Number(grnFormData.invoicePeriodDays) || 30,
-      lines: grnItems.map((item) => ({
-        itemId: Number(item.itemId),
-        qty: Math.max(1, Number.parseInt(item.quantityReceived, 10) || 1),
-      })),
+      ...(grnFormData.officeId ? { officeId: Number(grnFormData.officeId) } : {}),
+      lines: grnItems.map((item) => {
+        const line = {
+          itemId: Number(item.itemId),
+          qty: Math.max(1, Number.parseInt(item.quantityReceived, 10) || 1),
+        };
+        const unitPrice = Number(item.unitPrice);
+        if (Number.isFinite(unitPrice) && unitPrice >= 0) {
+          line.unitPrice = unitPrice;
+        }
+        return line;
+      }),
     };
     const submitPromise = editingGrnId
       ? updateGRN({ id: editingGrnId, data: payload })

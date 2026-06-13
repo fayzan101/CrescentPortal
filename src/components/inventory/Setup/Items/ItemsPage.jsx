@@ -202,8 +202,10 @@ const ItemsPage = () => {
             groupId: item.groupId ?? item.group?.id ?? item.group?.groupId ?? 0,
             reorderLevel: item.reorderLevel ?? 0,
             isActive: item.isActive ?? true,
-            expiryDate: item.expiryDate || item.expiry || '2026-12-31',
-            totalAmount: item.totalAmount ?? item.total ?? '6500.00',
+            amount: item.amount ?? null,
+            taxAmount: item.taxAmount ?? null,
+            totalAmount: resolveDisplayTotal(item),
+            expiryDate: formatDateValue(item.expiryDate || item.expiry),
         })),
         [items]
     );
@@ -257,6 +259,30 @@ const ItemsPage = () => {
         const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
         return Number.isFinite(parsed) ? parsed : 0;
     };
+    const toOptionalId = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    };
+    const formatMoney = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed.toFixed(2) : null;
+    };
+    const resolveDisplayTotal = (item) => {
+        if (item?.totalAmount != null && item.totalAmount !== '') {
+            return formatMoney(item.totalAmount);
+        }
+        const amount = Number(item?.amount);
+        const taxAmount = Number(item?.taxAmount);
+        if (Number.isFinite(amount) || Number.isFinite(taxAmount)) {
+            return formatMoney((Number.isFinite(amount) ? amount : 0) + (Number.isFinite(taxAmount) ? taxAmount : 0));
+        }
+        return null;
+    };
+    const formatDateValue = (value) => {
+        if (!value) return '-';
+        return String(value).slice(0, 10);
+    };
     const calculateTotalAmount = (amountValue, taxValue) => {
         const hasAnyValue = amountValue !== '' || taxValue !== '';
         if (!hasAnyValue) return '';
@@ -267,17 +293,39 @@ const ItemsPage = () => {
     const getCategoryName = (categoryId) => categories.find(c => String(c.id) === String(categoryId))?.name || 'N/A';
     const getGroupName = (groupId) => groups.find(group => String(group.id) === String(groupId))?.name || 'N/A';
 
-    const buildItemPayload = (data) => ({
-        sku: data.sku,
-        itemName: data.itemName,
-        categoryId: Number(data.categoryId || 0),
-        subCategoryId: Number(data.subCategoryId || 0),
-        groupId: Number(data.groupId || 0),
-        uom: data.uom,
-        ssnSidn: data.ssnSidn || '',
-        reorderLevel: data.reorderLevel === '' ? 0 : Math.max(0, Number(data.reorderLevel) || 0),
-        isActive: data.isActive ?? true,
-    });
+    const buildItemPayload = (data) => {
+        const payload = {
+            sku: data.sku,
+            itemName: data.itemName,
+            categoryId: toOptionalId(data.categoryId),
+            subCategoryId: toOptionalId(data.subCategoryId),
+            groupId: toOptionalId(data.groupId),
+            uom: data.uom,
+            ssnSidn: data.ssnSidn || '',
+            reorderLevel: data.reorderLevel === '' ? 0 : Math.max(0, Number(data.reorderLevel) || 0),
+            isActive: data.isActive ?? true,
+        };
+
+        const includesPricing = 'amount' in data || 'taxAmount' in data || 'totalAmount' in data;
+        if (includesPricing) {
+            const amount = parseAmount(data.amount);
+            const taxAmount = parseAmount(data.taxAmount);
+            const computedTotal = calculateTotalAmount(data.amount, data.taxAmount);
+            const totalAmount = computedTotal !== '' ? parseAmount(computedTotal) : parseAmount(data.totalAmount);
+            payload.amount = amount;
+            payload.taxAmount = taxAmount;
+            payload.totalAmount = totalAmount;
+        }
+
+        if ('description' in data) {
+            payload.description = data.description || undefined;
+        }
+        if ('expiryDate' in data) {
+            payload.expiryDate = data.expiryDate || undefined;
+        }
+
+        return payload;
+    };
 
     const tableColumns = [
         { key: 'itemName', label: 'Item Name', width: '24%' },
@@ -298,7 +346,7 @@ const ItemsPage = () => {
             key: 'totalAmount',
             label: 'Total Amount',
             width: '12%',
-            render: (item) => `Rs ${item.totalAmount}`,
+            render: (item) => (item.totalAmount != null ? `Rs ${item.totalAmount}` : '-'),
         },
         {
             key: 'isActive',
@@ -442,6 +490,11 @@ const ItemsPage = () => {
                     uom: editUom,
                     ssnSidn: editSsnSidn,
                     reorderLevel: editReorderLevel,
+                    expiryDate: editExpiryDate,
+                    amount: editAmount,
+                    taxAmount: editTaxAmount,
+                    totalAmount: editTotalAmount,
+                    description: editDescription,
                     isActive: selectedItem.isActive ?? true,
                 }),
             },
@@ -488,6 +541,7 @@ const ItemsPage = () => {
                 itemName: targetItem.itemName,
                 sku: targetItem.sku,
                 categoryId: targetItem.categoryId,
+                subCategoryId: targetItem.subCategoryId,
                 groupId: targetItem.groupId,
                 uom: targetItem.uom,
                 ssnSidn: targetItem.ssnSidn,
@@ -782,6 +836,24 @@ const ItemsPage = () => {
                                 <div>
                                     <p className="text-xs text-gray-600">UOM</p>
                                     <p className="text-sm font-semibold text-gray-900">{viewItem.uom || viewItem.unitOfMeasurement || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-600">Amount</p>
+                                    <p className="text-sm font-semibold text-gray-900">
+                                        {viewItem.amount != null ? `Rs ${formatMoney(viewItem.amount)}` : '-'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-600">Tax Amount</p>
+                                    <p className="text-sm font-semibold text-gray-900">
+                                        {viewItem.taxAmount != null ? `Rs ${formatMoney(viewItem.taxAmount)}` : '-'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-600">Total Amount</p>
+                                    <p className="text-sm font-semibold text-gray-900">
+                                        {resolveDisplayTotal(viewItem) ? `Rs ${resolveDisplayTotal(viewItem)}` : '-'}
+                                    </p>
                                 </div>
                             </div>
 

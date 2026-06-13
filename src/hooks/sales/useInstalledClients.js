@@ -1,10 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getSales } from '../../services/sales.service';
 
 export function useInstalledClients() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const refetch = useCallback(() => {
+    setReloadKey((key) => key + 1);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -27,7 +32,7 @@ export function useInstalledClients() {
       }
     })();
     return () => { isMounted = false; };
-  }, []);
+  }, [reloadKey]);
 
-  return { data, loading, error };
+  return { data, loading, error, refetch };
 }

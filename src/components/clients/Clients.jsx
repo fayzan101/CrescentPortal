@@ -2,9 +2,11 @@
 
 import { useClientContext } from "@/context/clientContext";
 import React, { useEffect, useMemo, useState } from "react";
-import { FiSearch, FiEye, FiEdit, FiTrash2, FiPlus, FiFilter, FiChevronLeft, FiChevronRight, FiMoreVertical } from "react-icons/fi";
+import { useRouter } from "next/navigation";
+import { FiSearch, FiEye, FiEdit, FiTrash2, FiPlus, FiFilter, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { useInstalledClients } from "@/hooks/sales/useInstalledClients";
 import { deleteSale } from "@/services/sales.service";
+import ClientDetailModal from "./ClientDetailModal";
 
 const defaultClientRow = {
   id: "",
@@ -67,13 +69,15 @@ const normalizeClient = (sale, index) => {
 };
 
 const Clients = () => {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [screenSize, setScreenSize] = useState("desktop");
-  const [deletedClientIds, setDeletedClientIds] = useState([]);
   const [deletingId, setDeletingId] = useState(null);
+  const [viewSaleId, setViewSaleId] = useState(null);
   const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [officeFilter, setOfficeFilter] = useState("All");
@@ -82,28 +86,71 @@ const Clients = () => {
   const [minVehicles, setMinVehicles] = useState("");
 
   const { openAddClientForm } = useClientContext();
-  const { data: sales = [], loading, error } = useInstalledClients();
-  const clients = (Array.isArray(sales) ? sales : [])
-    .map((sale, index) => normalizeClient(sale, index))
-    .filter((client) => !deletedClientIds.includes(client.id));
+  const { data: sales = [], loading, error, refetch } = useInstalledClients();
+  const clients = (Array.isArray(sales) ? sales : []).map((sale, index) => normalizeClient(sale, index));
+
+  const handleView = (client) => {
+    if (!client?.id) return;
+    setViewSaleId(client.id);
+  };
+
+  const handleEdit = (client) => {
+    if (!client?.id) return;
+    router.push(`/dashboard/sales?saleId=${client.id}&form=installation`);
+  };
 
   const handleDelete = async (client) => {
     if (!client?.id) return;
-    const confirmed = window.confirm(`Delete ${client.name}?`);
+    const confirmed = window.confirm(`Void ${client.name}? This will cancel the sale and reverse inventory.`);
     if (!confirmed) return;
 
     setActionMessage("");
+    setActionError("");
     setDeletingId(client.id);
     try {
       await deleteSale(client.id);
-      setActionMessage("Client deleted successfully.");
-    } catch (_err) {
-      // Keep UX flowing even if backend delete isn't available yet.
-      setActionMessage("Client removed from list (server delete unavailable).");
+      setActionMessage(`${client.name} voided successfully.`);
+      await refetch();
+    } catch (err) {
+      setActionError(err?.response?.data?.message || err?.message || "Failed to void client.");
     } finally {
-      setDeletedClientIds((prev) => (prev.includes(client.id) ? prev : [...prev, client.id]));
       setDeletingId(null);
     }
+  };
+
+  const actionButtonClass = "p-1.5 rounded hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed";
+
+  const ClientRowActions = ({ client, size = "md" }) => {
+    const iconClass = size === "sm" ? "w-3 h-3" : "w-3.5 h-3.5";
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => handleView(client)}
+          className={`${actionButtonClass} bg-blue-50 text-blue-600 hover:bg-blue-100`}
+          title="View"
+        >
+          <FiEye className={iconClass} />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleEdit(client)}
+          className={`${actionButtonClass} bg-blue-50 text-blue-600 hover:bg-blue-100`}
+          title="Edit in Sales"
+        >
+          <FiEdit className={iconClass} />
+        </button>
+        <button
+          type="button"
+          onClick={() => handleDelete(client)}
+          disabled={deletingId === client.id}
+          className={`${actionButtonClass} bg-red-50 text-red-600 hover:bg-red-100`}
+          title="Void"
+        >
+          <FiTrash2 className={iconClass} />
+        </button>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -221,19 +268,7 @@ const Clients = () => {
               <span className="ml-2">{client.office}</span>
             </div>
             <div className="flex items-center gap-1">
-              <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                <FiEye className="w-3.5 h-3.5" />
-              </button>
-              <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                <FiEdit className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => handleDelete(client)}
-                disabled={deletingId === client.id}
-                className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-60"
-              >
-                <FiTrash2 className="w-3.5 h-3.5" />
-              </button>
+              <ClientRowActions client={client} />
             </div>
           </div>
         </div>
@@ -271,21 +306,7 @@ const Clients = () => {
               </td>
               <td className="p-2 font-medium text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-2">
-                <div className="flex items-center gap-1">
-                  <button className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                    <FiEye className="w-3 h-3" />
-                  </button>
-                  <button className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                    <FiEdit className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(client)}
-                    disabled={deletingId === client.id}
-                    className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-60"
-                  >
-                    <FiTrash2 className="w-3 h-3" />
-                  </button>
-                </div>
+                <ClientRowActions client={client} size="sm" />
               </td>
             </tr>
           ))}
@@ -330,21 +351,7 @@ const Clients = () => {
               </td>
               <td className="p-3 font-medium text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-3">
-                <div className="flex items-center gap-1">
-                  <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                    <FiEye className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                    <FiEdit className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(client)}
-                    disabled={deletingId === client.id}
-                    className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-60"
-                  >
-                    <FiTrash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <ClientRowActions client={client} />
               </td>
             </tr>
           ))}
@@ -394,22 +401,7 @@ const Clients = () => {
               </td>
               <td className="p-3 font-bold text-green-600 text-sm">Rs {client.dueBalance}</td>
               <td className="p-3">
-                <div className="flex items-center gap-1">
-                  <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" title="View">
-                    <FiEye className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" title="Edit">
-                    <FiEdit className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(client)}
-                    disabled={deletingId === client.id}
-                    className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-60"
-                    title="Delete"
-                  >
-                    <FiTrash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <ClientRowActions client={client} />
               </td>
             </tr>
           ))}
@@ -606,6 +598,11 @@ const Clients = () => {
             {actionMessage}
           </div>
         )}
+        {actionError && (
+          <div className="px-3 md:px-4 py-3 text-sm text-red-600 border-b border-gray-200">
+            {actionError}
+          </div>
+        )}
 
         {screenSize === "mobile" ? renderMobileView() : 
          screenSize === "small-tablet" ? renderSmallTableView() :
@@ -668,6 +665,10 @@ const Clients = () => {
           </div>
         </div>
       </div>
+
+      {viewSaleId && (
+        <ClientDetailModal saleId={viewSaleId} onClose={() => setViewSaleId(null)} />
+      )}
     </div>
   );
 };

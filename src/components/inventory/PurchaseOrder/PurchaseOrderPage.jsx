@@ -64,6 +64,12 @@ function toDatetimeLocalValue(iso) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function toOptionalAmount(value) {
+    if (value === undefined || value === null || value === '') return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 const PurchaseOrderPage = () => {
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState('');
@@ -145,7 +151,7 @@ const PurchaseOrderPage = () => {
             id: resolveItemRecordId(item) || (item.id ?? item.itemId ?? item._id ?? item.value),
             name: item.name || item.itemName || item.label || '',
             unitOfMeasurement: resolveItemUnitOfMeasurement(item),
-            price: item.price ?? item.unitPrice ?? item.rate ?? 0,
+            price: item.amount ?? item.totalAmount ?? item.unitPrice ?? item.price ?? item.rate ?? 0,
         }));
     }, [itemsQuery.data]);
 
@@ -642,10 +648,29 @@ const PurchaseOrderPage = () => {
         return {
             purchaseRequestId,
             vendorId,
-            lines: itemsToSubmit.map((item) => ({
-                itemId: Number(item.itemId),
-                qty: Math.max(1, Number.parseInt(item.quantityOrdered, 10) || 1),
-            })),
+            shipToOfficeId: Number(formData.officeId) || Number(selectedPurchaseRequest?.officeId) || undefined,
+            shipToStoreId: Number(selectedPurchaseRequest?.storeId) || undefined,
+            remarks: formData.notes?.trim() || undefined,
+            taxAmount: toOptionalAmount(formData.taxAmount),
+            shippingCost: toOptionalAmount(formData.shippingCost),
+            discountAmount: toOptionalAmount(formData.discountAmount),
+            expectedDeliveryDate: formData.expectedDeliveryDate || undefined,
+            lines: itemsToSubmit.map((item) => {
+                const qty = Math.max(1, Number.parseInt(item.quantityOrdered, 10) || 1);
+                const unitPrice = Number(item.unitPrice);
+                const totalPrice = Number(item.totalPrice);
+                const line = {
+                    itemId: Number(item.itemId),
+                    qty,
+                };
+                if (Number.isFinite(unitPrice) && unitPrice >= 0) {
+                    line.unitPrice = unitPrice;
+                }
+                if (Number.isFinite(totalPrice) && totalPrice >= 0) {
+                    line.totalPrice = totalPrice;
+                }
+                return line;
+            }),
         };
     };
 

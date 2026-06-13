@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import AddNewSaleForm from "./AddNewSaleForm";
 import AccountsApprovalForm from "./AccountsApprovalForm";
 import OperationProcessForm from "./OperationProcessForm";
@@ -8,10 +9,29 @@ import InstallationForm from "./InstallationForm";
 import { useSales } from "@/hooks/sales/useSales";
 
 const Sales = () => {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeForm, setActiveForm] = useState("addSale");
   const [newSaleId, setNewSaleId] = useState(null);
   const [selectedSaleId, setSelectedSaleId] = useState("");
   const { data: sales = [] } = useSales();
+
+  const validForms = useMemo(
+    () => new Set(["addSale", "accountsApproval", "operationsProcess", "installation"]),
+    [],
+  );
+
+  useEffect(() => {
+    const saleId = searchParams.get("saleId");
+    const form = searchParams.get("form");
+    if (saleId) {
+      setNewSaleId(null);
+      setSelectedSaleId(saleId);
+    }
+    if (form && validForms.has(form)) {
+      setActiveForm(form);
+    }
+  }, [searchParams, validForms]);
 
   const saleOptions = useMemo(
     () =>
@@ -46,7 +66,14 @@ const Sales = () => {
         {buttons.map((btn) => (
           <button
             key={btn.key}
-            onClick={() => setActiveForm(btn.key)}
+            onClick={() => {
+              setActiveForm(btn.key);
+              if (effectiveSaleId) {
+                router.replace(`/dashboard/sales?saleId=${effectiveSaleId}&form=${btn.key}`);
+              } else {
+                router.replace(`/dashboard/sales?form=${btn.key}`);
+              }
+            }}
             className={`
               w-full 
               px-2 sm:px-3 md:px-4 
@@ -77,6 +104,7 @@ const Sales = () => {
               onChange={(e) => {
                 setNewSaleId(null);
                 setSelectedSaleId(e.target.value);
+                router.replace(`/dashboard/sales?saleId=${e.target.value}&form=${activeForm}`);
               }}
               className="w-full md:w-80 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
             >

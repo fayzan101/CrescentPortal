@@ -232,7 +232,13 @@ const PurchaseRequestPage = () => {
         id,
         requestNo: request.requestNo || request.purchaseRequestNo || (id != null ? `PR-${id}` : ''),
         officeId: request.officeId ?? request.office?.officeId ?? request.office?.id ?? '',
-        officeName: request.officeName || request.office?.branchName || request.branchName || '',
+        officeName:
+          request.officeName ||
+          request.office?.branchName ||
+          request.office?.officeName ||
+          request.branchName ||
+          offices.find((office) => String(office.id) === String(request.officeId ?? request.office?.officeId ?? request.office?.id ?? ''))?.branchName ||
+          '',
         storeId: request.storeId ?? request.store?.storeId ?? request.store?.id ?? '',
         storeName: request.storeName || request.store?.storeName || request.store?.name || '',
         storeLocation: request.store?.location || '',
@@ -249,7 +255,7 @@ const PurchaseRequestPage = () => {
         lineCount: lines.length,
       };
     });
-  }, [itemLookup, requestsQuery.data]);
+  }, [itemLookup, offices, requestsQuery.data]);
 
   const calculateRequestTotalAmount = (requestItems = []) => {
     return requestItems.reduce((sum, line) => {
@@ -270,7 +276,7 @@ const PurchaseRequestPage = () => {
 
   const tableColumns = [
     { key: 'requestNo', label: 'PR #', width: '16%' },
-    { key: 'officeId', label: 'Office ID', width: '14%', render: (item) => item.officeId ?? 'N/A' },
+    { key: 'officeName', label: 'Office', width: '14%', render: (item) => item.officeName || 'N/A' },
     { key: 'storeName', label: 'Store', width: '18%', render: (item) => item.storeName || 'N/A' },
     { key: 'userId', label: 'Requested By', width: '14%', render: (item) => item.userId || 'N/A' },
     {
@@ -694,7 +700,7 @@ const PurchaseRequestPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
                   ['PR #', previewRequest.requestNo || `PR-${previewRequest.id}`],
-                  ['Office ID', previewRequest.officeId ?? 'N/A'],
+                  ['Office', previewRequest.officeName || 'N/A'],
                   ['Store', previewRequest.storeName || 'N/A'],
                   ['Store Location', previewRequest.storeLocation || 'N/A'],
                   ['Requested By User ID', previewRequest.userId || 'N/A'],
