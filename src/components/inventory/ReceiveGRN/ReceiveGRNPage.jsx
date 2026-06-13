@@ -187,6 +187,8 @@ const ReceiveGRNPage = () => {
           id: order.id ?? order.purchaseOrderId ?? order._id,
           poNo: order.purchaseOrderNo || order.poNo || order.code || '',
           prNo: order.purchaseRequestNo || order.purchasedRequestNo || order.prNo || '',
+          approvalStatus: String(order.approvalStatus || order.status || 'DRAFT').toUpperCase(),
+          deliveryStatus: String(order.deliveryStatus || order.delivery_state || 'PENDING').toUpperCase(),
           officeId: order.officeId ?? order.shipToOfficeId ?? order.purchaseRequest?.officeId ?? order.office?.id ?? order.office?.officeId ?? '',
           officeName: order.officeName || order.office?.branchName || order.branchName || '',
           storeId: order.storeId ?? order.store?.id ?? order.store?.storeId ?? '',
@@ -224,6 +226,7 @@ const ReceiveGRNPage = () => {
         invoicePeriodDays: grn.invoicePeriodDays ?? null,
         remarks: grn.remarks ?? null,
         receivedDate: grn.receivedDate || grn.createdAt || grn.updatedAt || null,
+        status: String(grn.status || 'DRAFT').toUpperCase(),
         items: Array.isArray(grn.lines) ? grn.lines : Array.isArray(grn.items) ? grn.items : [],
       })),
     [grnsRaw]
@@ -640,13 +643,32 @@ const ReceiveGRNPage = () => {
       .finally(() => setSubmitting(false));
   };
 
+  const confirmedGrnPoIds = useMemo(() => {
+    const ids = new Set();
+    grns.forEach((grn) => {
+      if (grn.status === 'CONFIRMED' && grn.purchaseOrderId != null && grn.purchaseOrderId !== '') {
+        ids.add(String(grn.purchaseOrderId));
+      }
+    });
+    return ids;
+  }, [grns]);
+
   const eligiblePurchaseOrders = useMemo(
     () =>
       purchaseOrders.filter((po) => {
-        const status = String(po.approvalStatus || po.status || '').toUpperCase();
-        return status === 'PENDING' || status === 'APPROVED';
+        const poId = String(po.id);
+        if (po.approvalStatus !== 'APPROVED') return false;
+        if (confirmedGrnPoIds.has(poId) || po.deliveryStatus === 'DELIVERED') return false;
+
+        const grnsForPo = grns.filter((grn) => String(grn.purchaseOrderId) === poId);
+        if (!editingGrnId) {
+          return grnsForPo.length === 0;
+        }
+
+        if (String(grnFormData.purchaseOrderId) === poId) return true;
+        return grnsForPo.every((grn) => grn.status !== 'CONFIRMED');
       }),
-    [purchaseOrders]
+    [purchaseOrders, confirmedGrnPoIds, grns, editingGrnId, grnFormData.purchaseOrderId]
   );
 
   return (
@@ -743,7 +765,7 @@ const ReceiveGRNPage = () => {
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50 disabled:bg-gray-100"
                   >
                     <option value="">
-                      {loadingPOs ? 'Loading POs...' : eligiblePurchaseOrders.length === 0 ? 'No pending/approved POs available' : 'Select PO'}
+                      {loadingPOs ? 'Loading POs...' : eligiblePurchaseOrders.length === 0 ? 'No eligible POs available' : 'Select PO'}
                     </option>
                     {eligiblePurchaseOrders.map(po => (
                       <option key={po.id} value={po.id}>
@@ -760,7 +782,7 @@ const ReceiveGRNPage = () => {
                   {!loadingPOs && eligiblePurchaseOrders.length === 0 && (
                     <div className="flex items-center gap-2 mt-2 text-red-600 text-sm">
                       <AlertCircle size={16} />
-                      <span>No pending/approved purchase orders found</span>
+                      <span>No approved POs without a confirmed GRN found</span>
                     </div>
                   )}
                 </div>

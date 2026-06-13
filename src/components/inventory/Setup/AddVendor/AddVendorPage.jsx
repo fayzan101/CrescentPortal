@@ -6,16 +6,19 @@ import { Loader } from 'lucide-react';
 import DataTable from '../../../components/DataTable';
 import FieldWrapper from '../../../ui/FieldWrapper';
 import Input from '../../../ui/Input';
+import Select from '../../../ui/Select';
 import EditModal from '@/components/components/EditModal';
 import { useVendors } from '@/hooks/inventory/setup/useVendors';
 import { useCreateVendor } from '@/hooks/inventory/setup/useCreateVendor';
 import { useUpdateVendor } from '@/hooks/inventory/setup/useUpdateVendor';
 import { useDeleteVendor } from '@/hooks/inventory/setup/useDeleteVendor';
+import { useCities } from '@/hooks/city/useCities';
 
 const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     const queryClient = useQueryClient();
     const [formData, setFormData] = useState({
         vendorName: '',
+        cityId: '',
         phone: '',
         email: '',
         address: '',
@@ -30,6 +33,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     const [editEmail, setEditEmail] = useState('');
     const [editAddress, setEditAddress] = useState('');
     const [editContactPerson, setEditContactPerson] = useState('');
+    const [editCityId, setEditCityId] = useState('');
     const [updateError, setUpdateError] = useState(null);
     const [submitError, setSubmitError] = useState(null);
 
@@ -60,6 +64,23 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     };
 
     const vendorsQuery = useVendors();
+    const { data: citiesData } = useCities();
+    const cities = useMemo(() => {
+        const raw = Array.isArray(citiesData) ? citiesData : citiesData?.data ?? citiesData?.items ?? [];
+        return Array.isArray(raw) ? raw : [];
+    }, [citiesData]);
+    const cityOptions = useMemo(
+        () => cities.map((city) => ({
+            value: String(city.cityId ?? city.id),
+            label: city.cityName ?? city.name ?? '',
+        })),
+        [cities]
+    );
+    const cityNameById = useMemo(() => {
+        const map = new Map();
+        cities.forEach((city) => map.set(String(city.cityId ?? city.id), city.cityName ?? city.name ?? ''));
+        return map;
+    }, [cities]);
     const vendors = useMemo(() => normalizeList(vendorsQuery.data), [vendorsQuery.data]);
     const normalizedVendors = useMemo(
         () => vendors.map((vendor) => ({
@@ -96,6 +117,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         },
         onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: ['inventory-vendors'] });
+            await queryClient.invalidateQueries({ queryKey: ['dropdown-vendors'] });
         },
     });
 
@@ -125,6 +147,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         },
         onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: ['inventory-vendors'] });
+            await queryClient.invalidateQueries({ queryKey: ['dropdown-vendors'] });
         },
     });
 
@@ -146,6 +169,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         },
         onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: ['inventory-vendors'] });
+            await queryClient.invalidateQueries({ queryKey: ['dropdown-vendors'] });
         },
     });
 
@@ -155,8 +179,14 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     );
 
     const tableColumns = [
-        { key: 'vendorName', label: 'Vendor Name', width: '20%' },
-        { key: 'contactPerson', label: 'Contact Person', width: '20%' },
+        { key: 'vendorName', label: 'Vendor Name', width: '18%' },
+        {
+            key: 'cityId',
+            label: 'City',
+            width: '12%',
+            render: (item) => cityNameById.get(String(item.cityId ?? item.city?.cityId ?? '')) || 'N/A',
+        },
+        { key: 'contactPerson', label: 'Contact Person', width: '16%' },
         { key: 'phone', label: 'Phone', width: '15%' },
         { key: 'email', label: 'Email', width: '15%' },
         { key: 'address', label: 'Address', width: '25%' },
@@ -185,7 +215,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!formData.vendorName || !formData.phone || !formData.email || !formData.address) {
+        if (!formData.vendorName || !formData.cityId || !formData.phone || !formData.email || !formData.address) {
             return;
         }
 
@@ -193,6 +223,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         createVendor(
             {
                 vendorName: formData.vendorName,
+                cityId: Number(formData.cityId),
                 contactPerson: formData.contactPerson,
                 phone: formData.phone,
                 email: formData.email,
@@ -204,6 +235,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
                     onMarkCompleted?.('add-vendor');
                     setFormData({
                         vendorName: '',
+                        cityId: '',
                         phone: '',
                         email: '',
                         address: '',
@@ -218,6 +250,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
     const handleCancel = () => {
         setFormData({
             vendorName: '',
+            cityId: '',
             phone: '',
             email: '',
             address: '',
@@ -235,6 +268,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
             id: vendorId,
             data: {
                 vendorName: targetVendor.vendorName,
+                cityId: targetVendor.cityId ?? targetVendor.city?.cityId,
                 contactPerson: targetVendor.contactPerson,
                 phone: targetVendor.phone,
                 email: targetVendor.email,
@@ -251,13 +285,14 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         setEditEmail(vendor.email || vendor.emailId || '');
         setEditAddress(vendor.address || '');
         setEditContactPerson(vendor.contactPerson || '');
+        setEditCityId(String(vendor.cityId ?? vendor.city?.cityId ?? ''));
         setUpdateError(null);
         setShowEditModal(true);
     };
 
     const handleUpdateVendor = (onSuccess) => {
-        if (!editVendorName.trim() || !editPhone.trim() || !editEmail.trim() || !editAddress.trim()) {
-            setUpdateError('Vendor Name, Phone, Email and Address are required.');
+        if (!editVendorName.trim() || !editCityId || !editPhone.trim() || !editEmail.trim() || !editAddress.trim()) {
+            setUpdateError('Vendor Name, City, Phone, Email and Address are required.');
             return;
         }
 
@@ -266,6 +301,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
                 id: selectedVendor.id,
                 data: {
                     vendorName: editVendorName,
+                    cityId: Number(editCityId),
                     contactPerson: editContactPerson,
                     phone: editPhone,
                     email: editEmail,
@@ -291,6 +327,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
         setEditEmail('');
         setEditAddress('');
         setEditContactPerson('');
+        setEditCityId('');
         setUpdateError(null);
     };
 
@@ -324,6 +361,18 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
                                         onChange={handleInputChange}
                                         placeholder="Type here"
                                         className="text-sm py-2"
+                                    />
+                                </FieldWrapper>
+                            </div>
+
+                            <div className="space-y-1">
+                                <FieldWrapper label="City" required className="text-sm">
+                                    <Select
+                                        placeholder="Select City"
+                                        value={formData.cityId}
+                                        onChange={(e) => setFormData((prev) => ({ ...prev, cityId: e.target.value }))}
+                                        className="text-sm"
+                                        options={cityOptions}
                                     />
                                 </FieldWrapper>
                             </div>
@@ -434,6 +483,7 @@ const AddVendorPage = ({ onStepChange, onMarkCompleted }) => {
                 itemType="vendor"
                 fields={[
                     { label: "Vendor Name",   value: editVendorName,   onChange: setEditVendorName   },
+                    { label: "City", type: "select", value: editCityId, onChange: setEditCityId, options: cityOptions },
                     { label: "Contact Person", value: editContactPerson, onChange: setEditContactPerson },
                     { label: "Phone",          value: editPhone,        onChange: setEditPhone        },
                     { label: "Email",          value: editEmail,        onChange: setEditEmail        },

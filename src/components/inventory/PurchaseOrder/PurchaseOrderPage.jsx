@@ -137,6 +137,7 @@ const PurchaseOrderPage = () => {
             ...office,
             id: office.id ?? office.officeId ?? office._id,
             branchName: office.branchName || office.officeName || office.name || '',
+            cityId: office.cityId ?? office.city?.cityId ?? null,
         }));
     }, [officesQuery.data]);
 
@@ -197,12 +198,26 @@ const PurchaseOrderPage = () => {
             ...vendor,
             id: vendor.id ?? vendor.vendorId ?? vendor._id,
             name: vendor.name || vendor.vendorName || vendor.label || '',
+            cityId: vendor.cityId ?? vendor.city?.cityId ?? null,
         }));
     }, [vendorsQuery.data]);
 
+    const selectedOfficeCityId = useMemo(() => {
+        if (!formData.officeId) return null;
+        const office = offices.find((o) => String(o.id) === String(formData.officeId));
+        return office?.cityId ?? null;
+    }, [offices, formData.officeId]);
+
+    const filteredVendors = useMemo(() => {
+        if (!selectedOfficeCityId) return [];
+        return normalizedVendors.filter(
+            (vendor) => vendor.cityId != null && String(vendor.cityId) === String(selectedOfficeCityId)
+        );
+    }, [normalizedVendors, selectedOfficeCityId]);
+
     const vendorOptions = useMemo(
-        () => normalizedVendors.map((vendor) => ({ value: String(vendor.id), label: vendor.name })),
-        [normalizedVendors]
+        () => filteredVendors.map((vendor) => ({ value: String(vendor.id), label: vendor.name })),
+        [filteredVendors]
     );
 
     const rawPurchaseOrders = useMemo(
@@ -951,6 +966,8 @@ const PurchaseOrderPage = () => {
                                                 poItems: requestItems,
                                                 officeId: officeIdVal !== '' && officeIdVal != null ? String(officeIdVal) : prev.officeId,
                                                 office: officeLabel || prev.office,
+                                                vendorId: '',
+                                                vendorName: '',
                                                 user:
                                                     selectedRequest?.userId ||
                                                     selectedRequest?.createdBy ||
@@ -995,7 +1012,9 @@ const PurchaseOrderPage = () => {
                                             setFormData((prev) => ({
                                                 ...prev,
                                                 officeId: e.target.value,
-                                                office: selected?.branchName || ''
+                                                office: selected?.branchName || '',
+                                                vendorId: '',
+                                                vendorName: '',
                                             }));
                                         }}
                                         className="text-sm"
@@ -1006,10 +1025,10 @@ const PurchaseOrderPage = () => {
 
                                 <FieldWrapper label="Vendor" required className="text-sm">
                                     <Select
-                                        placeholder="Select Vendor"
+                                        placeholder={formData.officeId ? 'Select Vendor' : 'Select office first'}
                                         value={formData.vendorId}
                                         onChange={(e) => {
-                                            const selected = normalizedVendors.find((v) => String(v.id) === String(e.target.value));
+                                            const selected = filteredVendors.find((v) => String(v.id) === String(e.target.value));
                                             setFormData((prev) => ({
                                                 ...prev,
                                                 vendorId: e.target.value,
@@ -1018,6 +1037,7 @@ const PurchaseOrderPage = () => {
                                         }}
                                         className="text-sm"
                                         options={vendorOptions}
+                                        disabled={!formData.officeId}
                                     >
                                     </Select>
                                 </FieldWrapper>

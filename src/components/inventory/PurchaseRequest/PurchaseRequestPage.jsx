@@ -181,6 +181,7 @@ const PurchaseRequestPage = () => {
       ...office,
       id: office.id ?? office.officeId ?? office._id,
       branchName: office.branchName || office.officeName || office.name || '',
+      cityId: office.cityId ?? office.city?.cityId ?? null,
     })),
     [officesQuery.data]
   );
@@ -195,13 +196,21 @@ const PurchaseRequestPage = () => {
       ...store,
       id: store.id ?? store.storeId ?? store._id ?? store.value,
       name: store.name || store.storeName || store.label || '',
+      officeId: store.officeId ?? store.office?.officeId ?? store.office?.id ?? null,
     })),
     [storesQuery.data]
   );
 
+  const filteredStores = useMemo(() => {
+    if (!purchaseFormData.officeId) return [];
+    return stores.filter(
+      (store) => String(store.officeId ?? '') === String(purchaseFormData.officeId)
+    );
+  }, [stores, purchaseFormData.officeId]);
+
   const storeOptions = useMemo(
-    () => stores.map((store) => ({ value: String(store.id), label: store.name })),
-    [stores]
+    () => filteredStores.map((store) => ({ value: String(store.id), label: store.name })),
+    [filteredStores]
   );
 
   const items = useMemo(() => {
@@ -578,7 +587,7 @@ const PurchaseRequestPage = () => {
                   <Select
                     placeholder="Select Office"
                     value={purchaseFormData.officeId}
-                    onChange={(e) => setPurchaseFormData((prev) => ({ ...prev, officeId: e.target.value }))}
+                    onChange={(e) => setPurchaseFormData((prev) => ({ ...prev, officeId: e.target.value, storeId: '' }))}
                     className="text-sm"
                     options={officeOptions}
                   >
@@ -587,11 +596,12 @@ const PurchaseRequestPage = () => {
 
                 <FieldWrapper label="Store" required className="text-sm">
                   <Select
-                    placeholder="Select Store"
+                    placeholder={purchaseFormData.officeId ? 'Select Store' : 'Select office first'}
                     value={purchaseFormData.storeId}
                     onChange={(e) => setPurchaseFormData((prev) => ({ ...prev, storeId: e.target.value }))}
                     className="text-sm"
                     options={storeOptions}
+                    disabled={!purchaseFormData.officeId}
                   >
                   </Select>
                 </FieldWrapper>
