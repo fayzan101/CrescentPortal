@@ -374,6 +374,7 @@ const ReceiveGRNPage = () => {
       .then((response) => {
         toast.success(`Deleted ${grnNumber}`);
         queryClient.invalidateQueries(['grns']);
+        queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
         return response;
       })
       .catch((error) => {
@@ -402,6 +403,7 @@ const ReceiveGRNPage = () => {
             : prev
         );
         queryClient.invalidateQueries(['grns']);
+        queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
       })
       .catch(() => toast.error('Failed to approve GRN.'))
       .finally(() => setPreviewApproving(false));
@@ -628,6 +630,7 @@ const ReceiveGRNPage = () => {
         toast.success(editingGrnId ? 'GRN updated.' : 'GRN created.');
         handleCloseModal();
         queryClient.invalidateQueries(['grns']);
+        queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
       })
       .catch((error) => {
         const msg = error?.response?.data?.message;
