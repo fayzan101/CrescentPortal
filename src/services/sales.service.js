@@ -127,12 +127,41 @@ export async function getSales() {
 	}
 }
 
-export async function deleteSale(id) {
+export async function updateSalesStage(id, payload) {
 	try {
-		const response = await userRequest.delete(`${API_BASE}/${id}`);
+		const response = await userRequest.patch(`${API_BASE}/${id}/sales-stage`, payload);
 		return response.data?.data || response.data;
 	} catch (error) {
-		console.error('Error deleting sale:', error);
+		console.error('Error updating sales stage:', error);
+		throw error;
+	}
+}
+
+export async function reopenSale(id, stageCode) {
+	try {
+		const response = await userRequest.patch(`${API_BASE}/${id}/reopen`, { stageCode });
+		return response.data?.data || response.data;
+	} catch (error) {
+		console.error('Error reopening sale:', error);
+		throw error;
+	}
+}
+
+export async function voidSale(id) {
+	try {
+		const response = await userRequest.patch(`${API_BASE}/${id}/void`);
+		return response.data?.data || response.data;
+	} catch (error) {
+		console.error('Error voiding sale:', error);
+		throw error;
+	}
+}
+
+export async function deleteSale(id) {
+	try {
+		return voidSale(id);
+	} catch (error) {
+		console.error('Error voiding sale:', error);
 		throw error;
 	}
 }

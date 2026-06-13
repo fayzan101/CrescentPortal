@@ -3,11 +3,9 @@
 import React, { useMemo, useState, useEffect } from "react";
 import FieldWrapper from "@/components/ui/FieldWrapper";
 import Input from "@/components/ui/Input";
-import Select from "@/components/ui/Select";
 import FormActions from "@/components/components/FormActions";
 import SearchList from "@/components/components/SearchList";
 import { useOffices } from "@/hooks/office/useOffices";
-import { useCities } from "@/hooks/city/useCities";
 import { useDeleteOffice } from "@/hooks/office/useDeleteOffice";
 import { useUpdateOffice } from "@/hooks/office/useUpdateOffice";
 import { useCreateOffice } from "@/hooks/office/useCreateOffice";
@@ -18,11 +16,10 @@ import SuccessModal from "@/components/ui/SuccessModal";
 const AddOfficeTabContent = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [officeName, setOfficeName] = useState("");
-  const [cityId, setCityId] = useState("");
+  const [cityName, setCityName] = useState("");
   const [editOfficeName, setEditOfficeName] = useState("");
-  const [editCityId, setEditCityId] = useState("");
+  const [editCityName, setEditCityName] = useState("");
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
   const [showValidationError, setShowValidationError] = useState(false);
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: "" });
   const [validationErrors, setValidationErrors] = useState([]);
@@ -30,12 +27,9 @@ const AddOfficeTabContent = () => {
   const [localOffices, setLocalOffices] = useState([]);
 
   const { data, isLoading, error, isFetching, isPending, refetch } = useOffices();
-  const { data: citiesData } = useCities();
 
-  const { mutate: deleteOffice, isPending: isDeleting } = useDeleteOffice({
-    onSuccess: () => {
-      refetch();
-    },
+  const { mutate: deleteOffice } = useDeleteOffice({
+    onSuccess: () => refetch(),
   });
 
   const { mutate: updateOffice, isPending: isUpdating, error: updateError, reset: resetUpdateError } = useUpdateOffice({
@@ -56,32 +50,23 @@ const AddOfficeTabContent = () => {
     },
   });
 
-  const cityOptions = useMemo(
-    () =>
-      (citiesData || []).map((city) => ({
-        value: city.cityId.toString(),
-        label: city.cityName,
-      })),
-    [citiesData],
-  );
-
-  const resolveCityName = (office) =>
-    office?.city?.cityName ||
-    citiesData?.find((c) => c.cityId === office?.cityId)?.cityName ||
-    "N/A";
+  const resolveCityName = (office) => office?.city?.cityName || "N/A";
 
   useEffect(() => {
     if (!isLoading && !error && data) {
-      const mapped = data.map((office) => ({
-        id: office.officeId,
-        name: `${office.officeName}${resolveCityName(office) !== "N/A" ? ` (${resolveCityName(office)})` : ""}`,
-        city: resolveCityName(office),
-        cityId: office.cityId,
-        isActive: office.isActive,
-      }));
+      const mapped = data.map((office) => {
+        const city = resolveCityName(office);
+        return {
+          id: office.officeId,
+          name: `${office.officeName}${city !== "N/A" ? ` (${city})` : ""}`,
+          officeName: office.officeName,
+          city,
+          isActive: office.isActive,
+        };
+      });
       setLocalOffices(mapped);
     }
-  }, [data, isLoading, error, citiesData]);
+  }, [data, isLoading, error]);
 
   const offices = useMemo(() => {
     if (isLoading || error) return [];
@@ -91,41 +76,41 @@ const AddOfficeTabContent = () => {
   const handleCreateOffice = () => {
     const errors = [];
     if (!officeName.trim()) errors.push("Office Name");
-    if (!cityId) errors.push("City");
+    if (!cityName.trim()) errors.push("City");
     if (errors.length > 0) {
       setValidationErrors(errors);
       setShowValidationError(true);
       return false;
     }
     createOffice({
-      officeName,
-      cityId: parseInt(cityId, 10),
+      officeName: officeName.trim(),
+      cityName: cityName.trim(),
     });
   };
 
   const resetEditForm = () => {
     setEditOfficeName("");
-    setEditCityId("");
+    setEditCityName("");
   };
 
   const resetForm = () => {
     setOfficeName("");
-    setCityId("");
+    setCityName("");
     setSelectedOffice(null);
   };
 
   const handleEditOffice = (item) => {
     const source = data?.find((o) => o.officeId === item.id);
     setSelectedOffice(item);
-    setEditOfficeName(item.name);
-    setEditCityId(source?.cityId ? source.cityId.toString() : "");
+    setEditOfficeName(source?.officeName || item.officeName || "");
+    setEditCityName(source?.city?.cityName || item.city || "");
     setShowEditModal(true);
   };
 
   const handleUpdateOffice = (onSuccess) => {
     const errors = [];
     if (!editOfficeName.trim()) errors.push("Office Name");
-    if (!editCityId) errors.push("City");
+    if (!editCityName.trim()) errors.push("City");
     if (errors.length > 0) {
       setValidationErrors(errors);
       setShowValidationError(true);
@@ -136,8 +121,8 @@ const AddOfficeTabContent = () => {
       {
         id: selectedOffice.id,
         payload: {
-          officeName: editOfficeName,
-          cityId: parseInt(editCityId, 10),
+          officeName: editOfficeName.trim(),
+          cityName: editCityName.trim(),
         },
       },
       { onSuccess },
@@ -188,12 +173,11 @@ const AddOfficeTabContent = () => {
 
           <div className="space-y-1">
             <FieldWrapper label="City" required className="text-sm">
-              <Select
-                value={cityId}
-                onChange={(e) => setCityId(e.target.value)}
-                placeholder="Select City"
-                options={cityOptions}
-                className="text-sm"
+              <Input
+                placeholder="e.g. Karachi"
+                className="text-sm py-2"
+                value={cityName}
+                onChange={(e) => setCityName(e.target.value)}
               />
             </FieldWrapper>
           </div>
@@ -237,7 +221,7 @@ const AddOfficeTabContent = () => {
         itemType="office"
         fields={[
           { label: "Office Name", value: editOfficeName, onChange: setEditOfficeName },
-          { label: "City", value: editCityId, onChange: setEditCityId, type: "select", options: cityOptions },
+          { label: "City", value: editCityName, onChange: setEditCityName },
         ]}
       />
 
