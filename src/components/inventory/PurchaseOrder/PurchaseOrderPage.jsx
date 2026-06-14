@@ -691,6 +691,28 @@ const PurchaseOrderPage = () => {
         setFormData((prev) => ({ ...prev, poItems: prev.poItems.filter((item) => item.id !== id) }));
     };
 
+    const recalculatePoLineTotal = (item) => {
+        const qty = Math.max(1, Number.parseInt(item.quantityOrdered, 10) || 1);
+        const unitPrice = Number(item.unitPrice) || 0;
+        const taxAmount = Number(item.taxAmount) || 0;
+        return (qty * unitPrice + taxAmount).toFixed(2);
+    };
+
+    const handleUpdatePoItemField = (rowId, field, rawValue) => {
+        setFormData((prev) => ({
+            ...prev,
+            poItems: prev.poItems.map((item) => {
+                if (item.id !== rowId) return item;
+                const updated = { ...item, [field]: rawValue };
+                if (field === 'quantityOrdered') {
+                    updated.quantityOrdered = Math.max(1, Number.parseInt(rawValue, 10) || 1);
+                }
+                updated.totalPrice = recalculatePoLineTotal(updated);
+                return updated;
+            }),
+        }));
+    };
+
     const buildPurchaseOrderPayload = () => {
         if (!formData.officeId) {
             return { error: 'Please select an Office first.' };
@@ -723,7 +745,9 @@ const PurchaseOrderPage = () => {
             shipToOfficeId: Number(formData.officeId) || Number(selectedPurchaseRequest?.officeId) || undefined,
             shipToStoreId: Number(selectedPurchaseRequest?.storeId) || undefined,
             remarks: formData.notes?.trim() || undefined,
-            taxAmount: toOptionalAmount(formData.taxAmount),
+            taxAmount: toOptionalAmount(
+                formData.poItems.reduce((sum, item) => sum + (Number(item.taxAmount) || 0), 0) || formData.taxAmount
+            ),
             shippingCost: toOptionalAmount(formData.shippingCost),
             discountAmount: toOptionalAmount(formData.discountAmount),
             expectedDeliveryDate: formData.expectedDeliveryDate || undefined,
@@ -973,10 +997,13 @@ const PurchaseOrderPage = () => {
                                                 const catalog = normalizedItems.find(
                                                     (ni) => String(ni.id) === String(rawItemId)
                                                 );
+                                                const itemMeta = inventoryItemLookup.get(String(rawItemId));
                                                 const qty =
                                                     Number(item.quantity ?? item.qty ?? item.quantityOrdered ?? 1) || 1;
-                                                const price =
-                                                    Number(item.unitPrice ?? item.price ?? catalog?.price ?? 0) || 0;
+                                                const unitPrice =
+                                                    Number(item.unitPrice ?? item.price ?? itemMeta?.unitPrice ?? catalog?.price ?? 0) || 0;
+                                                const taxAmount =
+                                                    Number(item.taxAmount ?? itemMeta?.taxAmount ?? 0) || 0;
                                                 return {
                                                     id: item.id ?? item.lineId ?? `pr-line-${index}-${rawItemId}`,
                                                     itemId: catalog ? String(catalog.id) : String(rawItemId),
@@ -984,14 +1011,17 @@ const PurchaseOrderPage = () => {
                                                         item.itemName ||
                                                         item.name ||
                                                         catalog?.name ||
+                                                        itemMeta?.name ||
                                                         (rawItemId ? `Item ${rawItemId}` : 'Unknown item'),
                                                     unitOfMeasurement:
                                                         resolveItemUnitOfMeasurement(item) ||
                                                         catalog?.unitOfMeasurement ||
+                                                        itemMeta?.unitOfMeasurement ||
                                                         '',
                                                     quantityOrdered: qty,
-                                                    unitPrice: String(price),
-                                                    totalPrice: String(qty * price),
+                                                    unitPrice: String(unitPrice),
+                                                    taxAmount: String(taxAmount),
+                                                    totalPrice: String((qty * unitPrice + taxAmount).toFixed(2)),
                                                 };
                                             });
                                             const first = requestItems[0];
@@ -1094,8 +1124,10 @@ const PurchaseOrderPage = () => {
 
                             <div className="border-t border-gray-200 pt-6 space-y-4">
                                 <p className="text-xs text-gray-500">
-                                    PO lines are auto-loaded from the selected Purchase Request.
+                                    PO lines load from the selected Purchase Request. Edit Qty, Unit Price, and Tax in the table below.
                                 </p>
+                                {formData.poItems.length === 0 && (
+                                <>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <FieldWrapper label="Item Name" required className="text-sm">
                                         <Select
@@ -1166,18 +1198,20 @@ const PurchaseOrderPage = () => {
                                         Save
                                     </button>
                                 </div>
+                                </>
+                                )}
 
                             </div>
 
                             {formData.poItems.length > 0 && (
                                 <div className="border-t border-gray-200 pt-6">
-                                    <h3 className="text-base font-semibold text-gray-800 mb-4">Review Details</h3>
+                                    <h3 className="text-base font-semibold text-gray-800 mb-1">Review Details</h3>
+                                    <p className="text-xs text-gray-500 mb-4">Edit quantity, unit price, and tax amount per line.</p>
                                     <div className="overflow-x-auto border border-gray-200 rounded-lg">
                                         <table className="w-full">
                                             <thead>
                                                 <tr className="bg-gray-50 border-b border-gray-200">
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">S.No.</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item ID</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item SKU</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item Name</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">UOM</th>
@@ -1187,7 +1221,6 @@ const PurchaseOrderPage = () => {
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Total</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Category</th>
                                                     <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Sub Category</th>
-                                                    <th className="py-3 px-4 text-center text-sm font-semibold text-gray-700">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1196,19 +1229,43 @@ const PurchaseOrderPage = () => {
                                                     return (
                                                     <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
                                                         <td className="py-3 px-4 text-sm text-gray-700">{index + 1}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.itemId || 'N/A'}</td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{meta.itemSku}</td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{meta.itemName}</td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{meta.unitOfMeasurement}</td>
-                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-700">{item.quantityOrdered}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.unitPrice}</td>
-                                                        <td className="py-3 px-4 text-sm text-gray-700">{meta.taxAmount}</td>
-                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-700">{meta.totalAmount}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">
+                                                            <Input
+                                                                type="number"
+                                                                min="1"
+                                                                value={item.quantityOrdered}
+                                                                onChange={(e) => handleUpdatePoItemField(item.id, 'quantityOrdered', e.target.value)}
+                                                                className="text-sm py-1.5 w-20"
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">
+                                                            <Input
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={item.unitPrice}
+                                                                onChange={(e) => handleUpdatePoItemField(item.id, 'unitPrice', e.target.value)}
+                                                                className="text-sm py-1.5 w-24"
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">
+                                                            <Input
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={item.taxAmount ?? ''}
+                                                                onChange={(e) => handleUpdatePoItemField(item.id, 'taxAmount', e.target.value)}
+                                                                className="text-sm py-1.5 w-24"
+                                                            />
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-700">
+                                                            {formatMoney(item.totalPrice ?? recalculatePoLineTotal(item))}
+                                                        </td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{meta.categoryName}</td>
                                                         <td className="py-3 px-4 text-sm text-gray-700">{meta.subCategoryName}</td>
-                                                        <td className="py-3 px-4 text-center">
-                                                            <button onClick={() => handleRemoveItem(item.id)} className="text-red-500 hover:text-red-700 font-bold text-base">✕</button>
-                                                        </td>
                                                     </tr>
                                                     );
                                                 })}

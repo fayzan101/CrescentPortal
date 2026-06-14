@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, X, Loader, AlertCircle } from 'lucide-react';
@@ -9,13 +9,40 @@ import { useCreateGRN } from '@/hooks/inventory/Grn/useCreateGRN';
 import { useDeleteGRN } from '@/hooks/inventory/Grn/useDeleteGRN';
 import { useConfirmGRN } from '@/hooks/inventory/Grn/useConfirmGRN';
 import { useUpdateGRN } from '@/hooks/inventory/Grn/useUpdateGRN';
-import { useItemById } from '@/hooks/inventory/items/useItemById';
 import { useItems } from '@/hooks/inventory/items/useItems';
 import { useAppUserById } from '@/hooks/users/useAppUserById';
 import { usePurchaseOrders } from '@/hooks/inventory/purchase orders/usePurchaseOrders';
 import { useDropdownStores } from '@/hooks/inventory/utility/useDropdownStores';
 import { useDropdownVendors } from '@/hooks/inventory/utility/useDropdownVendors';
 import { normalizeApiList } from '@/lib/normalizeApiList';
+import { resolveItemUnitOfMeasurement } from '@/lib/inventoryItemMeta';
+
+const formatMoney = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'N/A';
+  return n.toFixed(2);
+};
+
+const enrichGrnLineItem = (line, itemLookup) => {
+  const meta = itemLookup.get(String(line.itemId ?? ''));
+  const unitPrice = Number(line.unitPrice ?? meta?.unitPrice ?? 0);
+  const taxAmount = Number(line.taxAmount ?? meta?.taxAmount ?? 0);
+  const quantityReceived = Math.max(1, Number(line.quantityReceived ?? line.quantityOrdered ?? 1) || 1);
+  const quantityOrdered = Math.max(0, Number(line.quantityOrdered ?? 0));
+  return {
+    ...line,
+    sku: line.sku || meta?.sku || 'N/A',
+    itemName: line.itemName || meta?.name || `Item #${line.itemId ?? 'N/A'}`,
+    unitOfMeasurement: line.unitOfMeasurement || meta?.unitOfMeasurement || 'N/A',
+    unitPrice,
+    taxAmount,
+    categoryName: line.categoryName || meta?.categoryName || 'N/A',
+    subCategoryName: line.subCategoryName || meta?.subCategoryName || 'N/A',
+    quantityReceived,
+    quantityOrdered,
+    totalPrice: (quantityReceived * unitPrice + taxAmount).toFixed(2),
+  };
+};
 
 const extractItemRecord = (payload) => {
   if (Array.isArray(payload)) return payload[0] || null;
@@ -48,64 +75,34 @@ const UserEmailCell = ({ userId }) => {
 const GrnItemRow = ({
   item,
   index,
-  allItems,
-  onItemChange,
   onQtyChange,
-  onPriceResolved,
-  onRemove,
   getLineTotal,
-}) => {
-  const { data: itemByIdData } = useItemById(item.itemId, { enabled: !!item.itemId });
-  const itemDetails = useMemo(() => extractItemRecord(itemByIdData), [itemByIdData]);
-  const resolvedUnitPrice = Number(itemDetails?.amount ?? itemDetails?.unitPrice ?? itemDetails?.price ?? item.unitPrice ?? 0);
-
-  useEffect(() => {
-    const currentPrice = Number(item.unitPrice ?? 0);
-    if (Number.isFinite(resolvedUnitPrice) && resolvedUnitPrice !== currentPrice) {
-      onPriceResolved(item.id, resolvedUnitPrice);
-    }
-  }, [item.id, item.unitPrice, onPriceResolved, resolvedUnitPrice]);
-
-  return (
-    <tr className="border-b hover:bg-gray-50 transition">
-      <td className="px-4 py-3 text-gray-800 text-sm font-medium">{index + 1}</td>
-      <td className="px-4 py-3 text-gray-700 text-sm">{item.sku}</td>
-      <td className="px-4 py-3 text-gray-700 text-sm">
-        <select
-          value={item.itemId ?? ''}
-          onChange={(e) => onItemChange(item.id, e.target.value)}
-          className="w-full border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
-        >
-          {allItems.map((line) => (
-            <option key={line.id ?? line.itemId} value={line.id ?? line.itemId}>
-              {line.name || line.itemName} ({line.sku || `#${line.id ?? line.itemId}`})
-            </option>
-          ))}
-        </select>
-      </td>
-      <td className="px-4 py-3 text-gray-700 text-sm font-semibold">
-        <input
-          type="number"
-          min="1"
-          value={item.quantityReceived}
-          onChange={(e) => onQtyChange(item.id, e.target.value)}
-          className="w-24 border border-gray-300 rounded-md px-2 py-1 text-sm"
-        />
-      </td>
-      <td className="px-4 py-3 text-gray-700 text-sm">{resolvedUnitPrice.toFixed(2)}</td>
-      <td className="px-4 py-3 text-gray-700 text-sm font-semibold">{getLineTotal({ ...item, unitPrice: resolvedUnitPrice }).toFixed(2)}</td>
-      <td className="px-4 py-3 text-center">
-        <button
-          onClick={() => onRemove(item.id)}
-          className="bg-red-500 hover:bg-red-600 text-white p-2 rounded transition inline-flex items-center justify-center"
-          title="Delete"
-        >
-          <Trash2 size={16} />
-        </button>
-      </td>
-    </tr>
-  );
-};
+}) => (
+  <tr className="border-b border-gray-200 hover:bg-gray-50">
+    <td className="py-3 px-4 text-sm text-gray-700">{index + 1}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{item.sku || 'N/A'}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{item.itemName || 'N/A'}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{item.unitOfMeasurement || 'N/A'}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">
+      <input
+        type="number"
+        min="1"
+        max={item.quantityOrdered || undefined}
+        value={item.quantityReceived}
+        onChange={(e) => onQtyChange(item.id, e.target.value)}
+        className="w-20 border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+      />
+      {item.quantityOrdered ? (
+        <span className="block text-xs text-gray-500 mt-1">of {item.quantityOrdered} ordered</span>
+      ) : null}
+    </td>
+    <td className="py-3 px-4 text-sm text-gray-700">{formatMoney(item.unitPrice)}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{formatMoney(item.taxAmount)}</td>
+    <td className="py-3 px-4 text-sm font-semibold text-gray-700">{formatMoney(getLineTotal(item))}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{item.categoryName || 'N/A'}</td>
+    <td className="py-3 px-4 text-sm text-gray-700">{item.subCategoryName || 'N/A'}</td>
+  </tr>
+);
 
 const ReceiveGRNPage = () => {
   const queryClient = useQueryClient();
@@ -151,12 +148,26 @@ const ReceiveGRNPage = () => {
 
   const items = useMemo(
     () =>
-      normalizeApiList(itemsRaw).map((item) => ({
-        ...item,
-        id: item.id ?? item.itemId ?? item._id,
-        name: item.name || item.itemName || item.label || '',
-        sku: item.sku || item.itemSku || '',
-      })),
+      normalizeApiList(itemsRaw).map((item) => {
+        const details = extractItemRecord(item) || item;
+        return {
+          ...details,
+          id: item.id ?? item.itemId ?? item._id,
+          name: item.name || item.itemName || item.label || '',
+          sku: item.sku || item.itemSku || '',
+          unitOfMeasurement: resolveItemUnitOfMeasurement(details) || resolveItemUnitOfMeasurement(item),
+          unitPrice: Number(details.amount ?? details.unitPrice ?? details.price ?? 0),
+          taxAmount: Number(details.taxAmount ?? 0),
+          categoryName:
+            details?.category?.categoryName ||
+            details?.categoryName ||
+            'N/A',
+          subCategoryName:
+            details?.subCategory?.subCategoryName ||
+            details?.subCategoryName ||
+            'N/A',
+        };
+      }),
     [itemsRaw]
   );
 
@@ -331,17 +342,22 @@ const ReceiveGRNPage = () => {
     setPreviewGrn(null);
   };
 
-  const mapGrnLineToFormItem = (line, idx, parentId) => ({
-    id: line.id ?? line.grnLineId ?? `${parentId ?? 'grn'}-line-${idx}`,
-    itemId: line.itemId,
-    itemName: line.item?.itemName || line.itemName || line.item?.name || `Item #${line.itemId}`,
-    sku: line.item?.sku || line.sku || '',
-    quantityReceived: Math.max(1, Number(line.qtyReceived ?? line.qty ?? line.quantityReceived ?? 1)),
-    quantityOrdered: Number(line.qtyOrdered ?? line.quantityOrdered ?? line.qty ?? 0),
-    unitPrice: Number(line.unitPrice ?? line.price ?? 0),
-    conditionStatus: line.conditionStatus || 'NEW',
-    poItemId: line.poLineId ?? line.purchaseOrderLineId ?? null,
-  });
+  const mapGrnLineToFormItem = (line, idx, parentId) =>
+    enrichGrnLineItem(
+      {
+        id: line.id ?? line.grnLineId ?? `${parentId ?? 'grn'}-line-${idx}`,
+        itemId: line.itemId,
+        itemName: line.item?.itemName || line.itemName || line.item?.name || `Item #${line.itemId}`,
+        sku: line.item?.sku || line.sku || '',
+        quantityReceived: Math.max(1, Number(line.qtyReceived ?? line.qty ?? line.quantityReceived ?? 1)),
+        quantityOrdered: Number(line.qtyOrdered ?? line.quantityOrdered ?? line.qty ?? 0),
+        unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+        taxAmount: Number(line.taxAmount ?? 0),
+        conditionStatus: line.conditionStatus || 'NEW',
+        poItemId: line.poLineId ?? line.purchaseOrderLineId ?? null,
+      },
+      itemLookup
+    );
 
   const handleEdit = (grn) => {
     console.log('[ReceiveGRNPage.handleEdit] Editing GRN:', grn);
@@ -477,17 +493,22 @@ const ReceiveGRNPage = () => {
     const po = purchaseOrders.find((order) => String(order.id ?? order.purchaseOrderId) === String(poId));
     setSelectedPO(po || null);
     if (po) {
-      const autoItems = (po.lines || []).map((line, index) => ({
-        id: line.id ?? `${po.id}-line-${index}`,
-        itemId: line.itemId,
-        itemName: line.itemName || line.name || `Item #${line.itemId}`,
-        sku: line.sku || '',
-        quantityReceived: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
-        quantityOrdered: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
-        unitPrice: Number(line.unitPrice ?? line.price ?? 0),
-        conditionStatus: 'NEW',
-        poItemId: line.id ?? null,
-      }));
+      const autoItems = (po.lines || []).map((line, index) =>
+        enrichGrnLineItem(
+          {
+            id: line.id ?? `${po.id}-line-${index}`,
+            itemId: line.itemId,
+            itemName: line.itemName || line.name || `Item #${line.itemId}`,
+            sku: line.sku || '',
+            quantityReceived: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
+            quantityOrdered: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
+            unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+            conditionStatus: 'NEW',
+            poItemId: line.id ?? null,
+          },
+          itemLookup
+        )
+      );
 
       setGrnFormData((prev) => ({
         ...prev,
@@ -583,18 +604,25 @@ const ReceiveGRNPage = () => {
   };
 
   const handleTableQtyChange = (rowId, value) => {
-    const parsed = Math.max(1, Number.parseInt(value, 10) || 1);
-    setGrnItems((prev) => prev.map((item) => (item.id === rowId ? { ...item, quantityReceived: parsed } : item)));
-  };
-
-  const handleTableUnitPriceResolved = (rowId, resolvedPrice) => {
     setGrnItems((prev) =>
-      prev.map((item) => (item.id === rowId ? { ...item, unitPrice: Number(resolvedPrice || 0) } : item))
+      prev.map((item) => {
+        if (item.id !== rowId) return item;
+        const ordered = Math.max(1, Number(item.quantityOrdered) || 1);
+        const parsed = Math.max(1, Math.min(ordered, Number.parseInt(value, 10) || 1));
+        const updated = { ...item, quantityReceived: parsed };
+        return {
+          ...updated,
+          totalPrice: (parsed * Number(updated.unitPrice || 0) + Number(updated.taxAmount || 0)).toFixed(2),
+        };
+      })
     );
   };
 
   const getLineTotal = (item) => {
-    return (Number(item.quantityReceived) || 0) * (Number(item.unitPrice) || 0);
+    const qty = Number(item.quantityReceived) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    const taxAmount = Number(item.taxAmount) || 0;
+    return qty * unitPrice + taxAmount;
   };
 
   const totalItemsPrice = useMemo(
@@ -604,7 +632,7 @@ const ReceiveGRNPage = () => {
 
   const handleSubmitGRN = () => {
     if (!grnFormData.purchaseOrderId || grnItems.length === 0) {
-      toast.error('Please select a purchase order and add at least one item.');
+      toast.error('Please select a purchase order with line items.');
       return;
     }
     setSubmitting(true);
@@ -850,63 +878,30 @@ const ReceiveGRNPage = () => {
 
               </div>
 
-              {/* Add More Item */}
-              <div className="grid grid-cols-3 gap-4 items-end">
-                <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">Add Item</label>
-                  <select
-                    name="itemId"
-                    value={grnFormData.itemId}
-                    onChange={handleGrnFormChange}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 text-sm"
-                  >
-                    <option value="">Select Item</option>
-                    {items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} ({item.sku || `#${item.id}`})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-gray-700 font-semibold text-sm block mb-2">Quantity</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={grnFormData.quantityReceived}
-                    onChange={(e) => handleQuantityChange(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddItem}
-                  className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-6 rounded-md transition h-[38px]"
-                >
-                  Add Item
-                </button>
-              </div>
-
-              {/* Review Details Section */}
+              {/* Review Items — loaded from PO; only quantity is editable */}
               <div className="mt-6">
-                <h3 className="text-lg font-bold text-gray-800 mb-4">Review Items</h3>
+                <h3 className="text-base font-semibold text-gray-800 mb-1">Review Details</h3>
+                <p className="text-xs text-gray-500 mb-4">Items load from the purchase order. Adjust received quantity only.</p>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
                   <table className="w-full">
-                    <thead className="bg-gray-50 border-b-2 border-gray-300">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">S. No.</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Item SKU</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Item Name</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Qty Received</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Unit Price</th>
-                        <th className="px-4 py-3 text-left text-gray-700 font-semibold text-sm">Line Total</th>
-                        <th className="px-4 py-3 text-center text-gray-700 font-semibold text-sm">Action</th>
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">S.No.</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item SKU</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item Name</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">UOM</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Qty</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Unit Price</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Tax Amount</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Total</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Category</th>
+                        <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Sub Category</th>
                       </tr>
                     </thead>
                     <tbody>
                       {grnItems.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="text-center py-6 text-gray-500 text-sm">Select a purchase order to load items</td>
+                          <td colSpan="10" className="text-center py-6 text-gray-500 text-sm">Select a purchase order to load items</td>
                         </tr>
                       ) : (
                         grnItems.map((item, index) => (
@@ -914,11 +909,7 @@ const ReceiveGRNPage = () => {
                             key={item.id}
                             item={item}
                             index={index}
-                            allItems={items}
-                            onItemChange={handleTableItemSelectionChange}
                             onQtyChange={handleTableQtyChange}
-                            onPriceResolved={handleTableUnitPriceResolved}
-                            onRemove={handleRemoveItem}
                             getLineTotal={getLineTotal}
                           />
                         ))

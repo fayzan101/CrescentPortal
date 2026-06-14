@@ -50,3 +50,55 @@ button {
 button:disabled {
   cursor: not-allowed;
 }
+
+/* Shared modal sizing — slightly larger than default across the app */
+.modal-panel-sm {
+  width: 100%;
+  max-width: 28rem;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.modal-panel-md {
+  width: 100%;
+  max-width: 36rem;
+  max-height: 94vh;
+  overflow-y: auto;
+}
+
+.modal-panel-lg {
+  width: 100%;
+  max-width: 56rem;
+  max-height: 97vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-panel-xl {
+  width: 100%;
+  max-width: 80rem;
+  max-height: 97vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-panel-view {
+  width: 100%;
+  max-width: 88%;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .modal-panel-view {
+    max-width: 75%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .modal-panel-view {
+    max-width: 68%;
+  }
+}
