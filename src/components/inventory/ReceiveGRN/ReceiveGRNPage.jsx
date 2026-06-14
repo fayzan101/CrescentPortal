@@ -7,7 +7,6 @@ import DataTable from '@/components/components/DataTable';
 import { useGetAllGRNs } from '@/hooks/inventory/Grn/useGetAllGRNs';
 import { useCreateGRN } from '@/hooks/inventory/Grn/useCreateGRN';
 import { useDeleteGRN } from '@/hooks/inventory/Grn/useDeleteGRN';
-import { useConfirmGRN } from '@/hooks/inventory/Grn/useConfirmGRN';
 import { useUpdateGRN } from '@/hooks/inventory/Grn/useUpdateGRN';
 import { useItems } from '@/hooks/inventory/items/useItems';
 import { useAppUserById } from '@/hooks/users/useAppUserById';
@@ -24,24 +23,33 @@ const formatMoney = (value) => {
 };
 
 const enrichGrnLineItem = (line, itemLookup) => {
-  const meta = itemLookup.get(String(line.itemId ?? ''));
-  const unitPrice = Number(line.unitPrice ?? meta?.unitPrice ?? 0);
-  const taxAmount = Number(line.taxAmount ?? meta?.taxAmount ?? 0);
-  const quantityReceived = Math.max(1, Number(line.quantityReceived ?? line.quantityOrdered ?? 1) || 1);
-  const quantityOrdered = Math.max(0, Number(line.quantityOrdered ?? 0));
+  const itemId = line.itemId ?? line.item?.itemId;
+  const meta = itemLookup.get(String(itemId ?? ''));
+  const unitPrice = Number(line.unitPrice ?? line.item?.amount ?? meta?.unitPrice ?? 0);
+  const taxAmount = Number(line.taxAmount ?? line.item?.taxAmount ?? meta?.taxAmount ?? 0);
+  const quantityReceived = Math.max(0, Number(line.quantityReceived ?? line.qtyReceived ?? line.qty ?? 0) || 0);
+  const quantityOrdered = Math.max(0, Number(line.quantityOrdered ?? line.qtyOrdered ?? 0));
   return {
     ...line,
-    sku: line.sku || meta?.sku || 'N/A',
-    itemName: line.itemName || meta?.name || `Item #${line.itemId ?? 'N/A'}`,
-    unitOfMeasurement: line.unitOfMeasurement || meta?.unitOfMeasurement || 'N/A',
+    itemId,
+    sku: line.sku || line.item?.sku || meta?.sku || 'N/A',
+    itemName: line.itemName || line.item?.itemName || meta?.name || `Item #${itemId ?? 'N/A'}`,
+    unitOfMeasurement: line.unitOfMeasurement || line.item?.uom || meta?.unitOfMeasurement || 'N/A',
     unitPrice,
     taxAmount,
-    categoryName: line.categoryName || meta?.categoryName || 'N/A',
-    subCategoryName: line.subCategoryName || meta?.subCategoryName || 'N/A',
+    categoryName: line.categoryName || line.item?.category?.categoryName || meta?.categoryName || 'N/A',
+    subCategoryName: line.subCategoryName || line.item?.subCategory?.subCategoryName || meta?.subCategoryName || 'N/A',
     quantityReceived,
     quantityOrdered,
     totalPrice: (quantityReceived * unitPrice + taxAmount).toFixed(2),
   };
+};
+
+const resolveUserLabel = (user, userId) => {
+  if (user && typeof user === 'object') {
+    return user.email || user.emailId || user.userEmail || user.name || null;
+  }
+  return userId ? String(userId) : null;
 };
 
 const extractItemRecord = (payload) => {
@@ -108,7 +116,6 @@ const ReceiveGRNPage = () => {
   const queryClient = useQueryClient();
   const [showAddModal, setShowAddModal] = useState(false);
   const [deleting, setDeleting] = useState(null);
-  const [previewApproving, setPreviewApproving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedPO, setSelectedPO] = useState(null);
@@ -125,8 +132,8 @@ const ReceiveGRNPage = () => {
     quantityReceived: 1,
     conditionStatus: 'NEW'
   });
-  const [previewGrn, setPreviewGrn] = useState(null); // GRN being previewed
-  const [editingGrnId, setEditingGrnId] = useState(null); // ID of GRN being edited
+  const [previewGrn, setPreviewGrn] = useState(null);
+  const [editingGrnId, setEditingGrnId] = useState(null);
 
   const { data: grnsRaw, isLoading: loading } = useGetAllGRNs();
   const { data: purchaseOrdersRaw, isLoading: loadingPOs } = usePurchaseOrders();
@@ -136,7 +143,6 @@ const ReceiveGRNPage = () => {
   const { mutateAsync: createGRN } = useCreateGRN();
   const { mutateAsync: updateGRN } = useUpdateGRN();
   const { mutateAsync: deleteGRN } = useDeleteGRN();
-  const { mutateAsync: confirmGRN } = useConfirmGRN();
 
   const normalizeOrderLines = (order) => {
     if (!order || typeof order !== 'object') return [];
@@ -183,14 +189,19 @@ const ReceiveGRNPage = () => {
         const lines = normalizeOrderLines(order).map((line, idx) => {
           const rawItemId = line.itemId ?? line.id ?? line.inventoryItemId ?? '';
           const itemMeta = itemLookup.get(String(rawItemId));
+          const unitPrice = Number(line.unitPrice ?? line.price ?? itemMeta?.unitPrice ?? 0);
           return {
             ...line,
             id: line.id ?? line.purchaseOrderLineId ?? `${order.purchaseOrderId ?? order.id ?? 'po'}-line-${idx}`,
             itemId: rawItemId,
             itemName: line.itemName || line.name || itemMeta?.name || `Item #${rawItemId}`,
             sku: line.itemSku || line.sku || itemMeta?.sku || '',
+            unitOfMeasurement: line.unitOfMeasurement || itemMeta?.unitOfMeasurement || 'N/A',
+            taxAmount: Number(line.taxAmount ?? itemMeta?.taxAmount ?? 0),
+            categoryName: itemMeta?.categoryName || 'N/A',
+            subCategoryName: itemMeta?.subCategoryName || 'N/A',
             quantityOrdered: Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 0),
-            unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+            unitPrice,
           };
         });
         return {
@@ -228,10 +239,15 @@ const ReceiveGRNPage = () => {
         officeName: grn.officeName || grn.office?.branchName || grn.office?.officeName || grn.branchName || '',
         storeId: grn.storeId ?? grn.store?.storeId ?? grn.store?.id ?? '',
         storeName: grn.storeName || grn.store?.storeName || grn.store?.name || '',
-        vendorId: grn.vendorId ?? grn.purchaseOrder?.vendorId ?? '',
-        vendorName: grn.vendorName || grn.vendor?.vendorName || grn.vendor?.name || '',
+        vendorName:
+          grn.vendorName ||
+          grn.purchaseOrder?.vendor?.vendorName ||
+          grn.purchaseOrder?.vendor?.name ||
+          '',
         receivedByUserId: grn.receivedByUserId ?? grn.receivedByUser ?? grn.receivedBy ?? null,
+        receivedByEmail: resolveUserLabel(grn.receivedBy, grn.receivedByUserId),
         confirmedByUserId: grn.confirmedByUserId ?? null,
+        confirmedByEmail: resolveUserLabel(grn.confirmedBy, grn.confirmedByUserId),
         confirmedAt: grn.confirmedAt ?? null,
         createdAt: grn.createdAt ?? grn.receivedDate ?? null,
         invoicePeriodDays: grn.invoicePeriodDays ?? null,
@@ -241,6 +257,17 @@ const ReceiveGRNPage = () => {
         items: Array.isArray(grn.lines) ? grn.lines : Array.isArray(grn.items) ? grn.items : [],
       })),
     [grnsRaw]
+  );
+
+  const previewLines = useMemo(() => {
+    if (!previewGrn) return [];
+    const rawLines = previewGrn.items || previewGrn.lines || [];
+    return rawLines.map((line, idx) => enrichGrnLineItem({ ...line, id: line.id ?? line.grnLineId ?? idx }, itemLookup));
+  }, [previewGrn, itemLookup]);
+
+  const previewTotal = useMemo(
+    () => previewLines.reduce((sum, line) => sum + Number(line.totalPrice || 0), 0),
+    [previewLines]
   );
 
   const vendors = useMemo(
@@ -317,16 +344,14 @@ const ReceiveGRNPage = () => {
         render: (item) => (
           <span
             className={`px-3 py-1 rounded-full text-xs font-semibold inline-block ${
-              item.status === 'RECEIVED'
+              item.status === 'CONFIRMED'
                 ? 'bg-green-100 text-green-700'
-                : item.status === 'INSPECTING'
-                ? 'bg-blue-100 text-blue-700'
-                : item.status === 'REJECTED'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-yellow-100 text-yellow-700'
+                : item.status === 'DRAFT'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-gray-100 text-gray-700'
             }`}
           >
-            {item.status || 'PENDING'}
+            {item.status || 'DRAFT'}
           </span>
         ),
       },
@@ -334,7 +359,6 @@ const ReceiveGRNPage = () => {
     []
   );
   const handlePreview = (grn) => {
-    console.log('[ReceiveGRNPage.handlePreview] Previewing GRN:', grn);
     setPreviewGrn(grn);
   };
 
@@ -360,11 +384,8 @@ const ReceiveGRNPage = () => {
     );
 
   const handleEdit = (grn) => {
-    console.log('[ReceiveGRNPage.handleEdit] Editing GRN:', grn);
-    
-    // Only allow editing of PENDING GRNs
-    if (grn.status !== 'PENDING') {
-      toast.error('Only PENDING GRNs can be edited');
+    if (grn.status === 'CONFIRMED') {
+      toast.error('Confirmed GRNs cannot be edited');
       return;
     }
 
@@ -403,29 +424,6 @@ const ReceiveGRNPage = () => {
       .finally(() => {
         setDeleting(null);
       });
-  };
-
-  const handleApproveFromPreview = () => {
-    if (!previewGrn?.id) return;
-    setPreviewApproving(true);
-    confirmGRN(previewGrn.id)
-      .then(() => {
-        toast.success('GRN approved successfully.');
-        setPreviewGrn((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: 'CONFIRMED',
-                confirmedByUserId: prev.confirmedByUserId || prev.receivedByUserId || 'N/A',
-                confirmedAt: new Date().toISOString(),
-              }
-            : prev
-        );
-        queryClient.invalidateQueries(['grns']);
-        queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-      })
-      .catch(() => toast.error('Failed to approve GRN.'))
-      .finally(() => setPreviewApproving(false));
   };
 
   const toggleRowSelection = (id) => {
@@ -500,6 +498,10 @@ const ReceiveGRNPage = () => {
             itemId: line.itemId,
             itemName: line.itemName || line.name || `Item #${line.itemId}`,
             sku: line.sku || '',
+            unitOfMeasurement: line.unitOfMeasurement,
+            taxAmount: line.taxAmount,
+            categoryName: line.categoryName,
+            subCategoryName: line.subCategoryName,
             quantityReceived: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
             quantityOrdered: Math.max(1, Number(line.quantityOrdered ?? line.qty ?? line.quantity ?? 1) || 1),
             unitPrice: Number(line.unitPrice ?? line.price ?? 0),
@@ -658,7 +660,7 @@ const ReceiveGRNPage = () => {
 
     submitPromise
       .then(() => {
-        toast.success(editingGrnId ? 'GRN updated.' : 'GRN created.');
+        toast.success(editingGrnId ? 'GRN updated.' : 'GRN created and confirmed.');
         handleCloseModal();
         queryClient.invalidateQueries(['grns']);
         queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
@@ -955,10 +957,14 @@ const ReceiveGRNPage = () => {
       {/* GRN Preview Modal */}
       {previewGrn && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-[90%] max-w-3xl max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="sticky top-0 flex justify-between items-center px-6 py-5 border-b border-gray-200 bg-linear-to-r from-blue-50 to-blue-25">
-              <div className="text-sm font-semibold text-gray-600 uppercase tracking-wide">GRN Details</div>
+          <div className="bg-white rounded-xl shadow-2xl w-[95%] max-w-6xl max-h-[94vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-200 bg-gray-50 shrink-0">
+              <div>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">GRN Details</div>
+                <h2 className="text-lg font-bold text-gray-900 mt-0.5">
+                  {previewGrn.grnNo || `GRN-${previewGrn.id || 'N/A'}`}
+                </h2>
+              </div>
               <button
                 onClick={closePreviewModal}
                 className="p-1.5 text-gray-400 hover:text-gray-600 cursor-pointer hover:bg-gray-100 rounded-lg transition-all duration-200"
@@ -967,101 +973,95 @@ const ReceiveGRNPage = () => {
               </button>
             </div>
 
-            {/* Content */}
-            <div className="p-8">
-              <div className="grid grid-cols-2 gap-8">
-                {/* Left Column - Basic Info */}
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                 <div>
-                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">GRN Information</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs text-gray-600">GRN Number</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.grnNo || `GRN-${previewGrn.id || 'N/A'}`}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">PO No.</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.poNo || `PO-${previewGrn.purchaseOrderId || 'N/A'}`}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">PR No.</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.prNo || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Vendor</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.vendorName || previewGrn.vendor?.vendorName || previewGrn.vendor?.name || previewGrn.vendorId || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Store</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.storeName || previewGrn.store?.storeName || previewGrn.store?.name || previewGrn.storeId || 'N/A'}</p>
-                    </div>
+                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Document Info</h3>
+                  <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/50 p-4">
+                    {[
+                      ['GRN Number', previewGrn.grnNo || `GRN-${previewGrn.id || 'N/A'}`],
+                      ['PO No.', previewGrn.poNo || previewGrn.purchaseOrder?.purchaseOrderNo || 'N/A'],
+                      ['PR No.', previewGrn.prNo || previewGrn.purchaseOrder?.purchaseRequest?.requestNo || 'N/A'],
+                      ['Office', previewGrn.officeName || previewGrn.office?.officeName || previewGrn.office?.branchName || 'N/A'],
+                      ['Store', previewGrn.storeName || previewGrn.store?.storeName || previewGrn.store?.name || 'N/A'],
+                      ['Vendor', previewGrn.vendorName || previewGrn.purchaseOrder?.vendor?.vendorName || 'N/A'],
+                      ['Invoice Period', previewGrn.invoicePeriodDays != null ? `${previewGrn.invoicePeriodDays} days` : 'N/A'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex justify-between gap-4 text-sm">
+                        <span className="text-gray-500 shrink-0">{label}</span>
+                        <span className="font-semibold text-gray-900 text-right">{value}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                {/* Right Column - Status and Dates */}
                 <div>
-                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Status & Dates</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs text-gray-600">GRN Status</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.status || 'DRAFT'}</p>
+                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Status & Audit</h3>
+                  <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/50 p-4">
+                    <div className="flex justify-between gap-4 text-sm items-center">
+                      <span className="text-gray-500">Status</span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        previewGrn.status === 'CONFIRMED'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {previewGrn.status || 'DRAFT'}
+                      </span>
                     </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Status</p>
-                      <div className="mt-1">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold inline-block ${
-                          previewGrn.status === 'RECEIVED'
-                            ? 'bg-green-100 text-green-700'
-                            : previewGrn.status === 'INSPECTING'
-                            ? 'bg-blue-100 text-blue-700'
-                            : previewGrn.status === 'REJECTED'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {previewGrn.status || 'PENDING'}
-                        </span>
+                    {[
+                      ['Received On', previewGrn.receivedDate || previewGrn.createdAt
+                        ? new Date(previewGrn.receivedDate || previewGrn.createdAt).toLocaleString()
+                        : 'N/A'],
+                      ['Received By', previewGrn.receivedByEmail || resolveUserLabel(previewGrn.receivedBy, previewGrn.receivedByUserId) || 'N/A'],
+                      ['Confirmed By', previewGrn.confirmedByEmail || resolveUserLabel(previewGrn.confirmedBy, previewGrn.confirmedByUserId) || 'N/A'],
+                      ['Confirmed At', previewGrn.confirmedAt ? new Date(previewGrn.confirmedAt).toLocaleString() : 'N/A'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex justify-between gap-4 text-sm">
+                        <span className="text-gray-500 shrink-0">{label}</span>
+                        <span className="font-semibold text-gray-900 text-right">{value}</span>
                       </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Received On</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {previewGrn.receivedDate ? new Date(previewGrn.receivedDate).toLocaleDateString() : 'N/A'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Received By</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.receivedByUserId || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Confirmed By</p>
-                      <p className="text-sm font-semibold text-gray-900">{previewGrn.confirmedByUserId || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Confirmed At</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {previewGrn.confirmedAt ? new Date(previewGrn.confirmedAt).toLocaleString() : 'N/A'}
-                      </p>
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              {/* Items Table */}
-              {previewGrn.items && previewGrn.items.length > 0 && (
+              {previewLines.length > 0 && (
                 <div className="mt-8">
-                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">GRN Lines</h3>
-                  <div className="overflow-x-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Line Items</h3>
+                    <p className="text-sm font-semibold text-gray-700">
+                      Total: {formatMoney(previewTotal)}
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
                     <table className="w-full">
                       <thead>
-                        <tr className="bg-gray-100 border-b border-gray-300">
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Item ID</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Qty Received</th>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">S.No.</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item SKU</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Item Name</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">UOM</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Qty</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Unit Price</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Tax Amount</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Total</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Category</th>
+                          <th className="py-3 px-4 text-left text-sm font-semibold text-gray-700">Sub Category</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {previewGrn.items.map((item, index) => (
-                          <tr key={index} className="border-b border-gray-200">
-                            <td className="px-4 py-3 text-sm text-gray-900">{item.itemId || 'N/A'}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900">{item.qtyReceived ?? item.quantityReceived ?? item.qty ?? 0}</td>
+                        {previewLines.map((line, index) => (
+                          <tr key={line.id ?? index} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="py-3 px-4 text-sm text-gray-700">{index + 1}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{line.sku}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{line.itemName}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{line.unitOfMeasurement}</td>
+                            <td className="py-3 px-4 text-sm font-semibold text-gray-700">{line.quantityReceived}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{formatMoney(line.unitPrice)}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{formatMoney(line.taxAmount)}</td>
+                            <td className="py-3 px-4 text-sm font-semibold text-gray-700">{formatMoney(line.totalPrice)}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{line.categoryName}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{line.subCategoryName}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1071,16 +1071,7 @@ const ReceiveGRNPage = () => {
               )}
             </div>
 
-            {/* Footer */}
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-between gap-3">
-              <button
-                onClick={handleApproveFromPreview}
-                disabled={previewApproving || previewGrn.status === 'CONFIRMED' || previewGrn.status === 'APPROVED'}
-                className="px-6 py-2.5 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {previewApproving && <Loader size={16} className="animate-spin" />}
-                {previewApproving ? 'Approving...' : 'Approve GRN'}
-              </button>
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end shrink-0">
               <button
                 onClick={closePreviewModal}
                 className="px-6 py-2.5 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50"
