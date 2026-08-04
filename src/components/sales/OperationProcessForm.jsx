@@ -373,23 +373,25 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                             <Select name="accessory1Id" value={form.accessory1Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
                         </FieldWrapper>
 
-                        <FieldWrapper label="Issue From Store" required className="text-sm">
-                            <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
-                        </FieldWrapper>
-
                         <FieldWrapper label="Select Accessories 2" required className="text-sm">
                             <Select name="accessory2Id" value={form.accessory2Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
                         </FieldWrapper>
-
-                        {/* empty left cell so Acc3 stays on the right column */}
-                        <div className="hidden lg:block" aria-hidden="true" />
 
                         <FieldWrapper label="Select Accessories 3" required className="text-sm">
                             <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
                         </FieldWrapper>
 
-                        {/* empty left cell so Device sits after Acc3 on the right */}
-                        <div className="hidden lg:block" aria-hidden="true" />
+                        <FieldWrapper label="Issue From Store" required className="text-sm">
+                            <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
+                        </FieldWrapper>
+
+                        
+
+                        
+
+                        
+
+                        
 
                         <FieldWrapper label="Select Device" required className="text-sm">
                             <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
