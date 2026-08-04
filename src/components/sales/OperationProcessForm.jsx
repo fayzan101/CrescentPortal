@@ -359,44 +359,42 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                                 <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
                             </FieldWrapper>
 
-                            <FieldWrapper label="Select Device" required className="text-sm">
-                                <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
-                            </FieldWrapper>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                                <FieldWrapper label="Device IMEI (physical unit)" required className="text-sm">
+                                    {showImeiDropdown ? (
+                                        <Select
+                                            name="deviceImei"
+                                            value={form.deviceImei}
+                                            onChange={handleChange}
+                                            placeholder={loadingUnits ? 'Loading units…' : 'Select in-stock IMEI'}
+                                            className="text-sm py-2"
+                                            options={imeiOptions}
+                                            disabled={!form.storeId || loadingUnits}
+                                        />
+                                    ) : (
+                                        <Input
+                                            name="deviceImei"
+                                            value={form.deviceImei}
+                                            onChange={handleChange}
+                                            placeholder={
+                                                form.storeId
+                                                    ? 'No units in stock — enter 15-digit IMEI'
+                                                    : 'Select store and device first'
+                                            }
+                                            className="text-sm py-2"
+                                            maxLength={15}
+                                            disabled={!form.storeId}
+                                        />
+                                    )}
+                                </FieldWrapper>
 
-                            <FieldWrapper label="Device IMEI (physical unit)" required className="text-sm">
-                                {showImeiDropdown ? (
-                                    <Select
-                                        name="deviceImei"
-                                        value={form.deviceImei}
-                                        onChange={handleChange}
-                                        placeholder={loadingUnits ? 'Loading units…' : 'Select in-stock IMEI'}
-                                        className="text-sm py-2"
-                                        options={imeiOptions}
-                                        disabled={!form.storeId || loadingUnits}
-                                    />
-                                ) : (
-                                    <Input
-                                        name="deviceImei"
-                                        value={form.deviceImei}
-                                        onChange={handleChange}
-                                        placeholder={
-                                            form.storeId
-                                                ? 'No units in stock — enter 15-digit IMEI'
-                                                : 'Select store and device first'
-                                        }
-                                        className="text-sm py-2"
-                                        maxLength={15}
-                                        disabled={!form.storeId}
-                                    />
-                                )}
-                            </FieldWrapper>
-
-                            <FieldWrapper label="Select SIM" required className="text-sm">
-                                <Select name="simId" value={form.simId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} />
-                            </FieldWrapper>
+                                <FieldWrapper label="Select SIM" required className="text-sm">
+                                    <Select name="simId" value={form.simId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} />
+                                </FieldWrapper>
+                            </div>
                         </div>
 
-                        {/* Column 2 — package, technician, accessories */}
+                        {/* Column 2 — package, technician, accessories, then device */}
                         <div className="flex flex-col gap-3 md:gap-3">
                             <FieldWrapper label="Select Package Type" required className="text-sm">
                                 <Select name="packageId" value={form.packageId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={packageOptions} />
@@ -424,6 +422,10 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
 
                             <FieldWrapper label="Select Accessories 3" required className="text-sm">
                                 <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
+                            </FieldWrapper>
+
+                            <FieldWrapper label="Select Device" required className="text-sm">
+                                <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
                             </FieldWrapper>
                         </div>
                     </div>
