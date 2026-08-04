@@ -341,93 +341,91 @@ const OperationProcessForm = ({ saleId, onSuccess}) => {
                     </h2>
                     
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
-                        {/* Column 1 — device assignment flow */}
-                        <div className="flex flex-col gap-3 md:gap-3">
-                            <FieldWrapper label="Select Product" required className="text-sm">
-                                <Select name="productId" value={form.productId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={productOptions} disabled={true}/>
-                            </FieldWrapper>
+                        <FieldWrapper label="Select Product" required className="text-sm">
+                            <Select name="productId" value={form.productId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={productOptions} disabled={true}/>
+                        </FieldWrapper>
 
-                            <FieldWrapper label="Select Zone" required className="text-sm">
-                                <Select name="zoneId" value={form.zoneId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={zoneOptions} />
-                            </FieldWrapper>
+                        <FieldWrapper label="Select Package Type" required className="text-sm">
+                            <Select name="packageId" value={form.packageId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={packageOptions} />
+                        </FieldWrapper>
 
-                            <FieldWrapper label="Select Device Combo" required className="text-sm">
-                                <Select name="deviceComboId" value={form.deviceComboId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={comboOptions} />
-                            </FieldWrapper>
+                        <FieldWrapper label="Select Zone" required className="text-sm">
+                            <Select name="zoneId" value={form.zoneId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={zoneOptions} />
+                        </FieldWrapper>
 
-                            <FieldWrapper label="Issue From Store" required className="text-sm">
-                                <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
-                            </FieldWrapper>
+                        <FieldWrapper label="Assign Technician" required className="text-sm">
+                            <Select
+                                name="assignedTechnicianUserId"
+                                value={form.assignedTechnicianUserId}
+                                onChange={handleChange}
+                                placeholder={form.zoneId ? 'Select zone technician' : 'Select zone first'}
+                                className="text-sm py-2"
+                                options={technicianOptions}
+                                disabled={!form.zoneId}
+                            />
+                        </FieldWrapper>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                                <FieldWrapper label="Device IMEI (physical unit)" required className="text-sm">
-                                    {showImeiDropdown ? (
-                                        <Select
-                                            name="deviceImei"
-                                            value={form.deviceImei}
-                                            onChange={handleChange}
-                                            placeholder={loadingUnits ? 'Loading units…' : 'Select in-stock IMEI'}
-                                            className="text-sm py-2"
-                                            options={imeiOptions}
-                                            disabled={!form.storeId || loadingUnits}
-                                        />
-                                    ) : (
-                                        <Input
-                                            name="deviceImei"
-                                            value={form.deviceImei}
-                                            onChange={handleChange}
-                                            placeholder={
-                                                form.storeId
-                                                    ? 'No units in stock — enter 15-digit IMEI'
-                                                    : 'Select store and device first'
-                                            }
-                                            className="text-sm py-2"
-                                            maxLength={15}
-                                            disabled={!form.storeId}
-                                        />
-                                    )}
-                                </FieldWrapper>
+                        <FieldWrapper label="Select Device Combo" required className="text-sm">
+                            <Select name="deviceComboId" value={form.deviceComboId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={comboOptions} />
+                        </FieldWrapper>
 
-                                <FieldWrapper label="Select SIM" required className="text-sm">
-                                    <Select name="simId" value={form.simId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} />
-                                </FieldWrapper>
-                            </div>
-                        </div>
+                        <FieldWrapper label="Select Accessories 1" required className="text-sm">
+                            <Select name="accessory1Id" value={form.accessory1Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
+                        </FieldWrapper>
 
-                        {/* Column 2 — package, technician, accessories, then device */}
-                        <div className="flex flex-col gap-3 md:gap-3">
-                            <FieldWrapper label="Select Package Type" required className="text-sm">
-                                <Select name="packageId" value={form.packageId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={packageOptions} />
-                            </FieldWrapper>
+                        <FieldWrapper label="Issue From Store" required className="text-sm">
+                            <Select name="storeId" value={form.storeId} onChange={handleChange} placeholder="Select store" className="text-sm py-2" options={storeOptions} />
+                        </FieldWrapper>
 
-                            <FieldWrapper label="Assign Technician" required className="text-sm">
+                        <FieldWrapper label="Select Accessories 2" required className="text-sm">
+                            <Select name="accessory2Id" value={form.accessory2Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
+                        </FieldWrapper>
+
+                        {/* empty left cell so Acc3 stays on the right column */}
+                        <div className="hidden lg:block" aria-hidden="true" />
+
+                        <FieldWrapper label="Select Accessories 3" required className="text-sm">
+                            <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
+                        </FieldWrapper>
+
+                        {/* empty left cell so Device sits after Acc3 on the right */}
+                        <div className="hidden lg:block" aria-hidden="true" />
+
+                        <FieldWrapper label="Select Device" required className="text-sm">
+                            <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
+                        </FieldWrapper>
+
+                        <FieldWrapper label="Device IMEI (physical unit)" required className="text-sm">
+                            {showImeiDropdown ? (
                                 <Select
-                                    name="assignedTechnicianUserId"
-                                    value={form.assignedTechnicianUserId}
+                                    name="deviceImei"
+                                    value={form.deviceImei}
                                     onChange={handleChange}
-                                    placeholder={form.zoneId ? 'Select zone technician' : 'Select zone first'}
+                                    placeholder={loadingUnits ? 'Loading units…' : 'Select in-stock IMEI'}
                                     className="text-sm py-2"
-                                    options={technicianOptions}
-                                    disabled={!form.zoneId}
+                                    options={imeiOptions}
+                                    disabled={!form.storeId || loadingUnits}
                                 />
-                            </FieldWrapper>
+                            ) : (
+                                <Input
+                                    name="deviceImei"
+                                    value={form.deviceImei}
+                                    onChange={handleChange}
+                                    placeholder={
+                                        form.storeId
+                                            ? 'No units in stock — enter 15-digit IMEI'
+                                            : 'Select store and device first'
+                                    }
+                                    className="text-sm py-2"
+                                    maxLength={15}
+                                    disabled={!form.storeId}
+                                />
+                            )}
+                        </FieldWrapper>
 
-                            <FieldWrapper label="Select Accessories 1" required className="text-sm">
-                                <Select name="accessory1Id" value={form.accessory1Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
-                            </FieldWrapper>
-
-                            <FieldWrapper label="Select Accessories 2" required className="text-sm">
-                                <Select name="accessory2Id" value={form.accessory2Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
-                            </FieldWrapper>
-
-                            <FieldWrapper label="Select Accessories 3" required className="text-sm">
-                                <Select name="accessory3Id" value={form.accessory3Id} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={accessoryOptions} />
-                            </FieldWrapper>
-
-                            <FieldWrapper label="Select Device" required className="text-sm">
-                                <Select name="deviceId" value={form.deviceId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={deviceOptions} />
-                            </FieldWrapper>
-                        </div>
+                        <FieldWrapper label="Select SIM" required className="text-sm">
+                            <Select name="simId" value={form.simId} onChange={handleChange} placeholder="Select" className="text-sm py-2" options={simOptions} />
+                        </FieldWrapper>
                     </div>
                 </div>
 
